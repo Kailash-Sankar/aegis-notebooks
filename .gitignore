@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.log
+*.tsbuildinfo
+
+# Secrets / local config — never commit
+.env
+.env.*
+!.env.example
+
+# Local working set (ADR 0001) — never commit user data
+workspaces/*
+!workspaces/.gitkeep
+
+# DuckDB artifacts
+*.duckdb
+*.duckdb.wal
+
+# OS
+.DS_Store

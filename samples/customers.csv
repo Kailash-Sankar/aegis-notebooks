@@ -1,0 +1,6 @@
+customer_id,customer,region,signup_date,plan
+c001,acme,us-east,2024-01-02,growth
+c002,globex,us-west,2024-01-05,starter
+c003,initech,emea,2024-01-09,enterprise
+c004,umbrella,apac,2024-02-01,growth
+c005,hooli,emea,2024-02-14,starter

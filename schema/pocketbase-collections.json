@@ -1,0 +1,61 @@
+{
+  "$comment": "Reference schema for PocketBase. Import or recreate via the admin UI / migrations. PocketBase is a projection of disk state (ADR 0002) -- never the authority for existence.",
+  "collections": [
+    {
+      "name": "workspaces",
+      "type": "base",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "path", "type": "text", "required": true },
+        { "name": "owner_id", "type": "text", "required": true },
+        { "name": "status", "type": "select", "values": ["active", "archived"], "maxSelect": 1 },
+        { "name": "created_at", "type": "date" }
+      ]
+    },
+    {
+      "name": "notebooks",
+      "type": "base",
+      "fields": [
+        { "name": "workspace_id", "type": "text", "required": true },
+        { "name": "title", "type": "text" },
+        { "name": "owner_id", "type": "text", "required": true },
+        { "name": "last_active", "type": "date" }
+      ]
+    },
+    {
+      "name": "uploads",
+      "type": "base",
+      "fields": [
+        { "name": "workspace_id", "type": "text", "required": true },
+        { "name": "filename", "type": "text", "required": true },
+        { "name": "bytes", "type": "number" },
+        { "name": "content_hash", "type": "text", "required": true },
+        { "name": "s3_key", "type": "text" },
+        { "name": "backup_status", "type": "select", "values": ["pending", "done", "failed", "skipped"], "maxSelect": 1 },
+        { "name": "created_at", "type": "date" }
+      ]
+    },
+    {
+      "name": "backups",
+      "type": "base",
+      "fields": [
+        { "name": "workspace_id", "type": "text", "required": true },
+        { "name": "kind", "type": "select", "values": ["upload", "snapshot"], "maxSelect": 1 },
+        { "name": "s3_key", "type": "text", "required": true },
+        { "name": "size", "type": "number" },
+        { "name": "created_at", "type": "date" }
+      ]
+    },
+    {
+      "name": "widget_specs",
+      "type": "base",
+      "fields": [
+        { "name": "notebook_id", "type": "text", "required": true },
+        { "name": "type", "type": "select", "values": ["component", "artifact"], "maxSelect": 1, "required": true },
+        { "name": "spec", "type": "json" },
+        { "name": "position", "type": "json" },
+        { "name": "updated_at", "type": "date" }
+      ]
+    }
+  ]
+}

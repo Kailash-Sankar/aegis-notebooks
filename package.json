@@ -1,0 +1,13 @@
+{
+  "name": "aegis-notebooks",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@12.8.1",
+  "scripts": {
+    "dev:runner": "pnpm --filter @aegis/runner dev",
+    "dev:web": "pnpm --filter @aegis/web dev",
+    "test": "pnpm --filter @aegis/runner test",
+    "typecheck": "pnpm -r run typecheck",
+    "build:web": "pnpm --filter @aegis/web build"
+  }
+}

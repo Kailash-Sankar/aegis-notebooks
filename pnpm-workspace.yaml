@@ -1,0 +1,12 @@
+packages:
+  - runner
+  - web
+
+# pnpm blocks dependency build scripts by default. These need theirs to install
+# platform binaries / generated code.
+allowBuilds:
+  esbuild: true
+  protobufjs: true
+  "@google/genai": true
+  "@astryxdesign/core": true
+  "@astryxdesign/cli": true

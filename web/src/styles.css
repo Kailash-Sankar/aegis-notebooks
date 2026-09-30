@@ -1,0 +1,292 @@
+/* Astryx prebuilt CSS. Order matters: reset -> components -> theme tokens. */
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+
+/* Override the theme's Figtree default with Inter (more neutral/technical).
+   The Astryx <Theme> wrapper (#root > div) re-declares these tokens with a
+   StyleX-boosted selector, so we must override on the wrapper itself. */
+:root,
+#root > div {
+  --font-family-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif !important;
+  --font-family-heading: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-body);
+}
+
+/* App chrome. Astryx components handle controls; these classes only lay out
+   the app frame and panes. */
+.aegis-app {
+  height: 100dvh;
+}
+
+.aegis-workspace {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.aegis-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  height: 100%;
+  min-height: 0;
+  border-inline-end: 1px solid var(--color-border);
+  background: var(--color-background-surface);
+  transition: width 160ms ease;
+}
+
+.aegis-sidebar[data-collapsed="false"] {
+  width: 268px;
+}
+
+.aegis-sidebar[data-collapsed="true"] {
+  width: 52px;
+}
+
+.aegis-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-3);
+}
+
+.aegis-sidebar[data-collapsed="true"] .aegis-sidebar-header {
+  justify-content: center;
+  padding-inline: var(--spacing-2);
+}
+
+.aegis-sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.aegis-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.aegis-banner-area {
+  padding: var(--spacing-2) var(--spacing-3) 0;
+}
+
+.aegis-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.aegis-section-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  margin-bottom: var(--spacing-2);
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.aegis-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.aegis-pane--chat {
+  flex: 0 0 clamp(400px, 34%, 560px);
+  min-width: 0;
+  border-inline-end: 1px solid var(--color-border);
+}
+
+.aegis-pane--canvas {
+  flex: 1 1 auto;
+}
+
+.aegis-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.aegis-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Data-source rows in the sidebar */
+.aegis-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-inner, 6px);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.aegis-file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aegis-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-8) var(--spacing-6);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-container, 10px);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.aegis-dropzone[data-dragging="true"] {
+  border-color: var(--color-border-emphasized, #6366f1);
+  background: var(--color-background-muted, rgba(99, 102, 241, 0.08));
+}
+
+.aegis-error {
+  color: #dc2626;
+  font-size: 0.8125rem;
+}
+
+.aegis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  color: var(--color-text-primary);
+}
+
+.aegis-table th,
+.aegis-table td {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--spacing-1) var(--spacing-2);
+  text-align: start;
+  white-space: nowrap;
+}
+
+.aegis-table th {
+  position: sticky;
+  top: 0;
+  background: var(--color-background-surface);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+/* Keep the selector shrinkable so the trailing + stays on the same line and
+   long workspace/notebook names truncate instead of pushing it out. */
+.aegis-sidebar .astryx-stack[data-direction="horizontal"] {
+  align-items: flex-end;
+}
+.aegis-sidebar .astryx-stack[data-direction="horizontal"] > *:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.aegis-sidebar .astryx-stack[data-direction="horizontal"] > *:last-child {
+  flex: 0 0 auto;
+}
+.aegis-sidebar [role="combobox"] {
+  min-width: 0;
+}
+.aegis-sidebar [role="combobox"] > * {
+  min-width: 0;
+}
+.aegis-sidebar [role="combobox"] span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Suggested-analysis chips above the composer */
+.aegis-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-3) var(--spacing-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.aegis-suggestions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.aegis-suggestions-dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.aegis-suggestions-dismiss:hover {
+  background: var(--color-background-muted, #e4e4e7);
+}
+
+.aegis-chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.aegis-chat-row {
+  display: flex;
+  gap: var(--spacing-3);
+}
+
+.aegis-avatar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-inner, 6px);
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--color-background-muted, #e4e4e7);
+  color: var(--color-text-secondary);
+}
+
+.aegis-avatar--ai {
+  background: color-mix(in srgb, #6366f1 16%, transparent);
+  color: #4f46e5;
+}

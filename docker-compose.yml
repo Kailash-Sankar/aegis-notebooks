@@ -1,0 +1,75 @@
+# Local development stack: PocketBase (registry) + RustFS (recovery set) +
+# the runner (which also hosts the Pi agent, per ADR 0003).
+#
+#   docker compose up -d pocketbase rustfs   # registry + backup store only
+#   docker compose up --build                 # include the runner
+#
+# After PocketBase starts, create the superuser once (see README). Note the
+# explicit --dir; the CLI default differs from the server's data dir:
+#   docker compose exec pocketbase /usr/local/bin/pocketbase superuser upsert \
+#     admin@aegis.local aegis-dev-password --dir=/pb/pb_data
+services:
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:latest
+    command: serve --http=0.0.0.0:8090 --dir=/pb/pb_data --migrationsDir=/pb/pb_migrations
+    ports:
+      - "8090:8090"
+    volumes:
+      - pb_data:/pb/pb_data
+      - ./pb_migrations:/pb/pb_migrations
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    command: /data
+    environment:
+      RUSTFS_ACCESS_KEY: aegis
+      RUSTFS_SECRET_KEY: aegis-dev-secret
+      RUSTFS_VOLUMES: /data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rustfs_data:/data
+
+  runner:
+    build:
+      context: .
+      dockerfile: runner/Dockerfile
+    depends_on:
+      - pocketbase
+      - rustfs
+    # ADR 0003 hardening: the container is the security boundary.
+    read_only: true
+    tmpfs:
+      - /tmp
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2
+    environment:
+      # HOME on tmpfs so Pi's runtime writes stay ephemeral and off the
+      # read-only root filesystem (we use in-memory sessions).
+      HOME: /tmp
+      PORT: 8787
+      WORKSPACES_ROOT: /workspaces
+      POCKETBASE_URL: http://pocketbase:8090
+      POCKETBASE_ADMIN_EMAIL: ${POCKETBASE_ADMIN_EMAIL:-}
+      POCKETBASE_ADMIN_PASSWORD: ${POCKETBASE_ADMIN_PASSWORD:-}
+      RUSTFS_ENDPOINT: http://rustfs:9000
+      RUSTFS_REGION: us-east-1
+      RUSTFS_ACCESS_KEY: aegis
+      RUSTFS_SECRET_KEY: aegis-dev-secret
+      RUSTFS_BUCKET: aegis-backups
+      # Model: set OPENROUTER_API_KEY (and optionally AEGIS_MODEL/AEGIS_THINKING)
+      # in a .env next to this file, or export them before `docker compose up`.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AEGIS_MODEL: ${AEGIS_MODEL:-}
+      AEGIS_THINKING: ${AEGIS_THINKING:-medium}
+    volumes:
+      - ./workspaces:/workspaces
+    ports:
+      - "8787:8787"
+
+volumes:
+  pb_data:
+  rustfs_data:
