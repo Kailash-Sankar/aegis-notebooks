@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { newId } from "../ids.js";
 import { withDuckdbLock } from "../workspace/ducklock.js";
+import { writeReport } from "../workspace/reports.js";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { Config } from "../config.js";
@@ -19,10 +20,14 @@ export interface ToolContext {
   workspaceRoot: string;
   duckdbPath: string;
   assetsDir: string;
+  /** Notebook reports directory (`reports/`); used by `write_report`. */
+  reportsDir: string;
   config: Config;
   registry: RegistryProjection;
   /** Called when the agent commits workspace context (workspace scope only). */
   onContextSaved?: () => Promise<void>;
+  /** Called after a full-page report is persisted (notebook scope only). */
+  onReportSaved?: (reportId: string) => Promise<void>;
 }
 
 const MAX_OUTPUT_BYTES = 200_000;
@@ -176,10 +181,12 @@ export function createAnalyticsTools(ctx: ToolContext) {
     name: "save_context",
     label: "Save Context",
     description:
-      "Write the finalized workspace context to memory/onboarding_context.md and mark " +
-      "onboarding complete. Call this ONLY after the user has confirmed your summary or " +
-      "answered your questions. Include a short 'Open questions' section for anything " +
-      "still unresolved. Do not write onboarding_context.md directly with other tools.",
+      "Write the workspace context to memory/onboarding_context.md and mark onboarding " +
+      "complete. Call this after the user confirms a summary or answers a question, and " +
+      "call it again whenever they confirm a new fact or correction (re-read the current " +
+      "file first, then resend the full markdown) so confirmed context is never lost " +
+      "between turns. Include a short 'Open questions' section for anything still " +
+      "unresolved. Do not write onboarding_context.md directly with other tools.",
     parameters: Type.Object({
       markdown: Type.String({
         description: "The full onboarding_context.md content (markdown).",
@@ -203,12 +210,40 @@ export function createAnalyticsTools(ctx: ToolContext) {
     description:
       "Persist a dashboard widget for the current notebook. Use type=component for a live, " +
       "data-bound chart (include the SQL query and chart config in spec). Use type=artifact for " +
-      "freeform static HTML/SVG (put the markup in spec.html). See ADR 0004.",
+      "freeform static HTML/SVG (put the markup in spec.html). See ADR 0004. " +
+      "The canvas is a 12-column grid: set `position` so widgets lay out as intended. " +
+      "Omitted position defaults to half width. Charts are usually w=6 or w=4; KPI rows and " +
+      "wide tables are w=12.",
     parameters: Type.Object({
       type: Type.Union([Type.Literal("component"), Type.Literal("artifact")]),
       title: Type.String(),
       spec: Type.Object({}, { additionalProperties: true }),
-      position: Type.Optional(Type.Object({}, { additionalProperties: true })),
+      position: Type.Optional(
+        Type.Object(
+          {
+            x: Type.Optional(
+              Type.Number({ description: "Starting column (0-11). Default: auto." }),
+            ),
+            y: Type.Optional(
+              Type.Number({ description: "Row order. Widgets are placed top-to-bottom by y." }),
+            ),
+            w: Type.Optional(
+              Type.Number({ description: "Column span, 1-12. Use 12 for full width." }),
+            ),
+            h: Type.Optional(
+              Type.Number({
+                description:
+                  "Height hint (rows). ~1 for KPI strips, 3 for standard charts; map rows to ~120px.",
+              }),
+            ),
+          },
+          {
+            description:
+              "12-column grid placement. Example full-width KPI row: {x:0,y:0,w:12,h:1}.",
+            additionalProperties: false,
+          },
+        ),
+      ),
     }),
     async execute(_toolCallId, params) {
       const id = newId();
@@ -228,14 +263,75 @@ export function createAnalyticsTools(ctx: ToolContext) {
       if (params.type === "artifact" && typeof spec.html === "string") {
         await writeFile(join(ctx.assetsDir, `${id}.html`), spec.html, "utf8");
       }
+      const size =
+        position && typeof position.w === "number"
+          ? `, w=${position.w}${typeof position.h === "number" ? ` h=${position.h}` : ""}`
+          : "";
       return {
-        content: [{ type: "text", text: `Widget ${id} saved (${params.type}).` }],
+        content: [{ type: "text", text: `Widget ${id} saved (${params.type}${size}).` }],
         details: { widgetId: id },
       };
     },
   });
 
-  return [duckdbQuery, registerDataset, suggestAnalysis, saveContext, writeWidget];
+  const writeReportTool = defineTool({
+    name: "write_report",
+    label: "Write Report",
+    description:
+      "Persist a full-page static report for the current notebook. The report is a " +
+      "self-contained HTML fragment (body content) rendered in a centred 920px column " +
+      "with a built-in theme. It is static -- bake the numbers in with SQL first " +
+      "(no scripts, no live queries). Prefer this over `write_widget` when the user " +
+      "asks for a report/briefing; use `write_widget` for dashboard tiles. Pass `id` " +
+      "to replace an existing report, or omit it to create a new one.\n\n" +
+      "Write semantic HTML: <h1> title, <h2> sections, <p> prose, <table>, <ul>, " +
+      "<blockquote>, <code>, and inline <svg> for charts (use viewBox, no fixed px " +
+      "width). Base element styles are provided -- do NOT restyle h1/h2/p/table or " +
+      "set page width/padding; add <style> only for chart-specific bits. Prefer the " +
+      "provided kit: `.kpis` > `.kpi` > `.kpi-value` + `.kpi-label` for metric " +
+      "strips; `.card` and `.callout` for boxed content; `.grid-2` for two-column " +
+      "layouts; `.muted` for secondary text; `.chart` around SVGs. Use the theme " +
+      "accent via `var(--rp-accent)` (default #6366f1) instead of ad-hoc palettes.",
+    parameters: Type.Object({
+      title: Type.String({ description: "Report title, shown in the report list." }),
+      html: Type.String({
+        description:
+          "Self-contained HTML body fragment: semantic sections, prose, tables, " +
+          "inline SVG, and optional <style> for chart specifics. Use the report kit " +
+          "classes (.kpis/.kpi/.kpi-value/.kpi-label, .card, .callout, .grid-2, " +
+          ".muted, .chart). Do not include <html>/<head>/<body>, <script>, page " +
+          "width/padding, or base-element overrides; the app wraps and themes it.",
+      }),
+      id: Type.Optional(
+        Type.String({ description: "Existing report id to replace." }),
+      ),
+    }),
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      const meta = await writeReport(ctx.reportsDir, {
+        id: params.id,
+        notebookId: ctx.notebookId,
+        title: params.title,
+        html: params.html,
+      });
+      await ctx.onReportSaved?.(meta.id);
+      return {
+        content: [
+          { type: "text", text: `Report "${meta.title}" saved (${meta.id}).` },
+        ],
+        details: { reportId: meta.id },
+      };
+    },
+  });
+
+  return [
+    duckdbQuery,
+    registerDataset,
+    suggestAnalysis,
+    saveContext,
+    writeWidget,
+    writeReportTool,
+  ];
 }
 
 type Column = { name: string; type: string };

@@ -1,7 +1,10 @@
 import type {
+  AgentRunResult,
   DataFile,
   Notebook,
   QueryResult,
+  Report,
+  ReportMeta,
   Widget,
   Workspace,
   WorkspaceContext,
@@ -71,6 +74,57 @@ export function listWidgets(workspaceId: string, notebookId: string): Promise<Wi
   );
 }
 
+export function listReports(
+  workspaceId: string,
+  notebookId: string,
+): Promise<ReportMeta[]> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/notebooks/${notebookId}/reports`).then(
+    json<ReportMeta[]>,
+  );
+}
+
+export function getReport(
+  workspaceId: string,
+  notebookId: string,
+  reportId: string,
+): Promise<Report> {
+  return fetch(
+    `${BASE}/workspaces/${workspaceId}/notebooks/${notebookId}/reports/${reportId}`,
+  ).then(json<Report>);
+}
+
+export function deleteReport(
+  workspaceId: string,
+  notebookId: string,
+  reportId: string,
+): Promise<unknown> {
+  return fetch(
+    `${BASE}/workspaces/${workspaceId}/notebooks/${notebookId}/reports/${reportId}`,
+    { method: "DELETE" },
+  ).then(json<unknown>);
+}
+
+export interface LayoutItemInput {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Persist user-arranged canvas layout (drag/resize). */
+export function saveLayout(
+  workspaceId: string,
+  notebookId: string,
+  layout: LayoutItemInput[],
+): Promise<unknown> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/notebooks/${notebookId}/layout`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ layout }),
+  }).then(json<unknown>);
+}
+
 export interface RestoreResult {
   workspaceId: string;
   uploadsRestored: number;
@@ -101,7 +155,7 @@ export function streamChat(
   notebookId: string,
   prompt: string,
   onDelta: (text: string) => void,
-): Promise<string> {
+): Promise<AgentRunResult> {
   return streamRun(
     `${BASE}/workspaces/${workspaceId}/notebooks/${notebookId}/chat`,
     { prompt },
@@ -128,7 +182,7 @@ export function saveNotes(workspaceId: string, notes: string): Promise<unknown> 
 export function streamOnboard(
   workspaceId: string,
   onDelta: (text: string) => void,
-): Promise<string> {
+): Promise<AgentRunResult> {
   return streamRun(`${BASE}/workspaces/${workspaceId}/onboard`, {}, onDelta);
 }
 
@@ -137,7 +191,7 @@ export function streamOnboardChat(
   workspaceId: string,
   prompt: string,
   onDelta: (text: string) => void,
-): Promise<string> {
+): Promise<AgentRunResult> {
   return streamRun(`${BASE}/workspaces/${workspaceId}/onboard/chat`, { prompt }, onDelta);
 }
 
@@ -157,7 +211,7 @@ async function streamRun(
   url: string,
   body: unknown,
   onDelta: (text: string) => void,
-): Promise<string> {
+): Promise<AgentRunResult> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -168,7 +222,7 @@ async function streamRun(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let finalText = "";
+  let result: AgentRunResult | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -182,11 +236,12 @@ async function streamRun(
       if (event === "pi" && isTextDelta(data)) {
         onDelta(data.assistantMessageEvent.delta);
       }
-      if (event === "done") finalText = (data as { text?: string }).text ?? "";
+      if (event === "done") result = data as AgentRunResult;
       if (event === "error") throw new Error((data as { error?: string }).error ?? "agent error");
     }
   }
-  return finalText;
+  if (!result) throw new Error("stream ended without a result");
+  return result;
 }
 
 function parseFrame(frame: string): { event: string; data: unknown } {

@@ -107,6 +107,10 @@ pnpm build:web
 | GET/POST | `/workspaces/:id/notebooks` | list / create |
 | POST | `/workspaces/:id/notebooks/:nb/chat` | notebook chat (SSE) |
 | GET | `/workspaces/:id/notebooks/:nb/widgets` | widget specs |
+| PUT | `/workspaces/:id/notebooks/:nb/layout` | persist canvas drag/resize |
+| GET | `/workspaces/:id/notebooks/:nb/reports` | list full-page reports |
+| GET | `/workspaces/:id/notebooks/:nb/reports/:reportId` | fetch a report body |
+| DELETE | `/workspaces/:id/notebooks/:nb/reports/:reportId` | delete a report |
 | GET | `/workspaces/:id/notebooks/:nb/transcript` | notebook chat history |
 
 ## Security

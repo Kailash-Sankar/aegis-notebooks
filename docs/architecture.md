@@ -57,6 +57,9 @@ onboard (workspace scope, no notebook)
   -> register_dataset creates DuckDB views
   -> agent summarizes + asks questions in chat
   -> save_context writes memory + marks complete
+  -> every turn ends with an SSE `done` event carrying `contextSaved` (did
+     save_context run this turn?) and `onboarding` (post-turn status), so the UI
+     confirms memory changed instead of inferring it from a file diff.
 
 notebook chat / widgets
   -> Pi session (notebook scope) + write_widget
@@ -76,6 +79,40 @@ delete(workspace_id) -> disk + registry + backups (full clean)
 | `suggest_analysis` | workspace        | record a one-click starting analysis                |
 | `save_context`     | workspace        | commit `onboarding_context.md`, mark onboarding done |
 | `write_widget`     | notebook         | persist a component/artifact widget                 |
+| `write_report`     | notebook         | persist a full-page static report (HTML/SVG)        |
+
+### Reports (static, Tier 1)
+
+A notebook has two surfaces under the same chat: **Dashboard** (the interactive
+grid of live components and static artifact tiles) and **Report** (a full-page
+static document). The agent writes reports with `write_report`; they are
+self-contained HTML/SVG fragments with data baked in from SQL, rendered
+scriptless in a sandboxed iframe, and can be downloaded or printed to PDF.
+Reports live on disk per notebook (`reports/index.json` + `reports/<id>.html`),
+consistent with disk-as-authority (ADR 0002). A future Tier 2 can make reports
+block-based so prose and live widgets compose into one document.
+
+### Canvas layout
+
+The notebook canvas is an interactive **12-column grid** (react-grid-layout).
+`write_widget` takes a `position` (`{ x, y, w, h }`); the agent proposes the
+initial layout and the user can **drag and resize**, with the arrangement
+persisted via `PUT .../notebooks/:id/layout`. Missing positions default to half
+width (`w: 6`). Common spans: `w: 12` for full-width KPI strips and wide
+tables, `w: 6` for two charts per row, `w: 3`/`w: 4` for small multiples.
+Widgets are dragged from their header handle; `h: 1` ~= 100px.
+
+Component widgets support `bar | line | area | pie | kpi | stackedBar | table |
+heatmap`. `kpi` renders themed metric cards from `x` (metric name) and `y`
+(value) columns, so headline metrics do not need a hand-built HTML artifact.
+Charts fill their grid cell (measured, responsive); they are not fixed-height.
+
+Widgets auto-size when their content would be clipped. KPI component strips
+estimate the rows their cards need at the current cell width; artifact iframes
+post their content height to the parent. In both cases the canvas grows the
+grid row just enough to fit. The artifact iframe uses `allow-scripts` (for that
+reporter) but **not** `allow-same-origin`, and a strict CSP blocks all network
+access.
 
 DuckDB takes an exclusive file lock, so all CLI invocations are serialized
 (`workspace/ducklock.ts`) and the DB tools run sequentially.
@@ -98,7 +135,8 @@ DuckDB takes an exclusive file lock, so all CLI invocations are serialized
     ├── notebook.json
     ├── chat_history.json
     ├── execution.log
-    └── generated_assets/
+    ├── generated_assets/   # widget artifacts
+    └── reports/            # full-page reports: index.json + <id>.html
 ```
 
 `workspace.json`/`notebook.json` are the disk-authoritative manifests

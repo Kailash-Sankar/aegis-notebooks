@@ -138,6 +138,95 @@ body {
   overflow-y: auto;
 }
 
+/* Dashboard | Report switcher above the notebook canvas pane. */
+.aegis-view-switch {
+  display: flex;
+  gap: 4px;
+  padding: var(--spacing-2) var(--spacing-3) 0;
+}
+
+.aegis-view-tab {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.aegis-view-tab.is-active {
+  background: var(--color-text, #18181b);
+  color: #fff;
+  border-color: transparent;
+}
+
+.aegis-view-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-background-muted, rgba(0, 0, 0, 0.08));
+  color: inherit;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.aegis-view-tab.is-active .aegis-view-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Hosts the canvas / report below the switcher. */
+.aegis-pane-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Full-page report surface. */
+/* The report document fills the pane; the `.report` wrapper inside the frame
+   provides the centred column and padding. */
+.aegis-report-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.aegis-report-frame > * {
+  height: 100%;
+}
+
+.aegis-report-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  align-items: center;
+  justify-content: center;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: var(--spacing-8);
+  text-align: center;
+}
+
+.aegis-report-select {
+  max-width: 240px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-background, #fff);
+  color: var(--color-text);
+  font-size: 0.75rem;
+}
+
 /* Data-source rows in the sidebar */
 .aegis-file-row {
   display: flex;
@@ -179,6 +268,157 @@ body {
 .aegis-error {
   color: #dc2626;
   font-size: 0.8125rem;
+}
+
+.aegis-notice {
+  color: #16a34a;
+  font-size: 0.8125rem;
+}
+
+/* Dynamic canvas: react-grid-layout container (drag + resize). */
+.aegis-canvas-grid {
+  min-width: 0;
+}
+
+.aegis-widget {
+  height: 100%;
+  overflow: hidden;
+}
+
+.aegis-widget-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header strip used as the drag handle. */
+.aegis-drag-handle {
+  cursor: grab;
+  user-select: none;
+}
+
+.aegis-drag-handle:active {
+  cursor: grabbing;
+}
+
+.aegis-widget-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.aegis-chart-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+
+/* Make the placeholder match the app's accent. */
+.react-grid-item.react-grid-placeholder {
+  background: #6366f1;
+  border-radius: var(--radius-container, 10px);
+}
+
+/* Make resize discoverable: a visible corner grip that brightens on hover. */
+.react-grid-item > .react-resizable-handle {
+  width: 22px;
+  height: 22px;
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+
+.react-grid-item:hover > .react-resizable-handle,
+.react-grid-item.resizing > .react-resizable-handle {
+  opacity: 1;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid #6366f1;
+  border-bottom: 2px solid #6366f1;
+  border-bottom-right-radius: 2px;
+}
+
+/* KPI metric cards (component chart type "kpi"). */
+.aegis-kpi-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.aegis-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-auto-rows: minmax(64px, 1fr);
+  align-content: stretch;
+  height: 100%;
+  gap: var(--spacing-3, 12px);
+}
+
+.aegis-kpi-card {
+  min-width: 0;
+  padding: var(--spacing-3, 12px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-inner, 8px);
+  background: var(--color-background-muted, #f4f4f5);
+}
+
+.aegis-kpi-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aegis-kpi-value {
+  margin-top: 4px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+/* Categorical heatmap (component chart type "heatmap"). */
+.aegis-heatmap {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  font-size: 0.75rem;
+}
+
+.aegis-heatmap-x,
+.aegis-heatmap-y {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aegis-heatmap-x {
+  justify-content: center;
+}
+
+.aegis-heatmap-y {
+  justify-content: flex-end;
+  padding-inline-end: 6px;
+}
+
+.aegis-heatmap-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .aegis-table {

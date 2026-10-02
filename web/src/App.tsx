@@ -8,6 +8,8 @@ import {
   getContext,
   listData,
   listNotebooks,
+  listReports,
+  listWidgets,
   listWorkspaces,
   restoreWorkspace,
   saveNotes,
@@ -18,6 +20,7 @@ import { UploadDialog } from "./components/UploadDialog.js";
 import { EmptyState } from "./components/EmptyState.js";
 import { ChatPanel } from "./components/ChatPanel.js";
 import { Canvas } from "./components/Canvas.js";
+import { ReportView } from "./components/ReportView.js";
 import { WorkspaceView } from "./components/WorkspaceView.js";
 
 export function App() {
@@ -28,6 +31,11 @@ export function App() {
   const [dataFiles, setDataFiles] = useState<DataFile[]>([]);
   const [context, setContext] = useState<WorkspaceContext | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [notebookView, setNotebookView] = useState<"dashboard" | "report">(
+    "dashboard",
+  );
+  const [widgetCount, setWidgetCount] = useState(0);
+  const [reportCount, setReportCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -69,6 +77,31 @@ export function App() {
       setContext(null);
     }
   }, []);
+
+  useEffect(() => {
+    setNotebookView("dashboard");
+    setWidgetCount(0);
+    setReportCount(0);
+  }, [notebookId]);
+
+  // Keep the tab counts accurate regardless of which tab is mounted.
+  useEffect(() => {
+    if (!workspaceId || !notebookId) return;
+    let cancelled = false;
+    listWidgets(workspaceId, notebookId)
+      .then((list) => {
+        if (!cancelled) setWidgetCount(list.length);
+      })
+      .catch(() => undefined);
+    listReports(workspaceId, notebookId)
+      .then((list) => {
+        if (!cancelled) setReportCount(list.length);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, notebookId, refreshToken]);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -251,17 +284,47 @@ export function App() {
                     workspaceId={workspaceId}
                     notebookId={notebookId}
                     onRunComplete={() => setRefreshToken((n) => n + 1)}
+                    onReportSaved={() => setNotebookView("report")}
                     initialPrompt={pending?.prompt}
                     initialLabel={pending?.label}
                     onInitialPromptConsumed={() => setPending(null)}
                   />
                 </div>
                 <div className="aegis-pane aegis-pane--canvas">
-                  <Canvas
-                    workspaceId={workspaceId}
-                    notebookId={notebookId}
-                    refreshToken={refreshToken}
-                  />
+                  <div className="aegis-view-switch" role="tablist">
+                    {(["dashboard", "report"] as const).map((v) => (
+                      <button
+                        key={v}
+                        role="tab"
+                        aria-selected={notebookView === v}
+                        className={
+                          "aegis-view-tab" +
+                          (notebookView === v ? " is-active" : "")
+                        }
+                        onClick={() => setNotebookView(v)}
+                      >
+                        {v === "dashboard" ? "Dashboard" : "Report"}
+                        <span className="aegis-view-count">
+                          {v === "dashboard" ? widgetCount : reportCount}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="aegis-pane-fill">
+                    {notebookView === "report" ? (
+                      <ReportView
+                        workspaceId={workspaceId}
+                        notebookId={notebookId}
+                        refreshToken={refreshToken}
+                      />
+                    ) : (
+                      <Canvas
+                        workspaceId={workspaceId}
+                        notebookId={notebookId}
+                        refreshToken={refreshToken}
+                      />
+                    )}
+                  </div>
                 </div>
               </>
             ) : (

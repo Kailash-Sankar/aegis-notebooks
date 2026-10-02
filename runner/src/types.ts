@@ -51,6 +51,22 @@ export interface BackupRecord {
 
 export type WidgetType = "component" | "artifact";
 
+/**
+ * A full-page static report (Tier 1). Metadata lives in `reports/index.json`;
+ * the body lives in `reports/<id>.html` (disk is authority, ADR 0002).
+ */
+export interface ReportMeta {
+  id: string;
+  notebookId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Report extends ReportMeta {
+  html: string;
+}
+
 export interface WidgetSpec {
   id: string;
   notebookId: string;

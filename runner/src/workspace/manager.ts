@@ -8,6 +8,7 @@ import type { Notebook, Workspace } from "../types.js";
 import type { RegistryProjection } from "../registry/pocketbase.js";
 import { currentUser } from "../auth/current-user.js";
 import { workspacePaths, type WorkspacePaths } from "./paths.js";
+import { compactIfNeeded } from "./context.js";
 
 const WORKSPACE_MANIFEST_VERSION = 1;
 
@@ -156,6 +157,7 @@ export class WorkspaceManager {
     const paths = this.pathsFor(workspaceId);
     const nb = paths.notebook(id);
     await mkdir(nb.assetsDir, { recursive: true });
+    await mkdir(nb.reportsDir, { recursive: true });
     await writeFile(nb.chatHistory, "[]", "utf8");
     await writeFile(nb.executionLog, "", "utf8");
 
@@ -305,6 +307,9 @@ export class WorkspaceManager {
     const paths = this.pathsFor(workspaceId);
     await mkdir(paths.memoryDir, { recursive: true });
     await writeFile(paths.userNotes, notes, "utf8");
+    // Keep the injected context (onboarding_context + user_notes) within the
+    // token budget (ADR 0005). Compaction drops the oldest note lines first.
+    await compactIfNeeded(paths);
   }
 
   /** True when onboarding_context.md has been generated (not the placeholder). */

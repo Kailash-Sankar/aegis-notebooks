@@ -19,6 +19,11 @@ export interface RegistryProjection {
   upsertUpload(u: UploadRecord): Promise<void>;
   upsertBackup(b: BackupRecord): Promise<void>;
   upsertWidget(w: WidgetSpec): Promise<void>;
+  /** Persist a widget's canvas placement (drag/resize). */
+  updateWidgetPosition(
+    widgetId: string,
+    position: Record<string, unknown>,
+  ): Promise<void>;
   getWorkspace(workspaceId: string): Promise<Workspace | null>;
   /** Remove every registry record belonging to a workspace. */
   deleteWorkspace(workspaceId: string): Promise<void>;
@@ -34,6 +39,7 @@ export class NullRegistry implements RegistryProjection {
   async upsertUpload(): Promise<void> {}
   async upsertBackup(): Promise<void> {}
   async upsertWidget(): Promise<void> {}
+  async updateWidgetPosition(): Promise<void> {}
   async getWorkspace(): Promise<Workspace | null> {
     return null;
   }
@@ -198,6 +204,16 @@ export class PocketBaseRegistry implements RegistryProjection {
       spec: w.spec,
       position: w.position,
       updated_at: w.updatedAt,
+    });
+  }
+
+  async updateWidgetPosition(
+    widgetId: string,
+    position: Record<string, unknown>,
+  ): Promise<void> {
+    await this.request("PATCH", `/api/collections/widget_specs/records/${widgetId}`, {
+      position,
+      updated_at: new Date().toISOString(),
     });
   }
 

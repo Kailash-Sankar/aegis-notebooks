@@ -37,6 +37,7 @@ export function AgentChat({
   messages,
   busy,
   error,
+  notice,
   onSend,
   placeholder,
   emptyHint,
@@ -46,6 +47,7 @@ export function AgentChat({
   messages: ChatMessage[];
   busy: boolean;
   error: string | null;
+  notice?: string | null;
   onSend: (prompt: string) => void;
   placeholder: string;
   emptyHint: string;
@@ -103,6 +105,7 @@ export function AgentChat({
               </Text>
             </Stack>
           )}
+          {notice && <div className="aegis-notice">✓ {notice}</div>}
           {error && <div className="aegis-error">{error}</div>}
         </Stack>
       </div>

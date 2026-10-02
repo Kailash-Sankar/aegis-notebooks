@@ -68,6 +68,7 @@ export function WorkspaceView({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -75,6 +76,15 @@ export function WorkspaceView({
   const onboarded = Boolean(status?.onboarded);
   const stale = Boolean(status?.stale);
   const hasData = dataFiles.length > 0;
+
+  async function reloadTranscript(): Promise<void> {
+    try {
+      const entries = await getOnboardTranscript(workspaceId);
+      setMessages(transcriptToMessages(entries));
+    } catch {
+      // Leave the current view alone if the transcript can't be read.
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +105,7 @@ export function WorkspaceView({
   async function run(prompt?: string) {
     if (busy) return;
     setError(null);
+    setNotice(null);
     setBusy(true);
     setMessages((prev) => [
       ...prev,
@@ -103,11 +114,30 @@ export function WorkspaceView({
     ]);
     try {
       const onDelta = (delta: string) => appendAssistantDelta(setMessages, delta);
-      if (prompt) await streamOnboardChat(workspaceId, prompt, onDelta);
-      else await streamOnboard(workspaceId, onDelta);
+      const result = prompt
+        ? await streamOnboardChat(workspaceId, prompt, onDelta)
+        : await streamOnboard(workspaceId, onDelta);
       await onContextChanged();
+      // Explicit signal from the runner: did save_context actually run?
+      if (result.contextSaved) {
+        setNotice("Workspace context saved.");
+      } else if (claimsContextSaved(result.text)) {
+        // The agent said it updated memory but never committed it. Flag it
+        // instead of letting the user believe the context changed.
+        setError(
+          "The agent described a context update but no save was committed. " +
+            "Ask it to call save_context, then confirm again.",
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      // The runner persists the turn even when it errors, so re-sync the
+      // bubbles with disk. Otherwise the UI would show a user/assistant
+      // exchange the model never saw, and the next turn would look confused.
+      // Refresh context too: save_context may have committed before a later
+      // tool failed.
+      await reloadTranscript();
+      await onContextChanged();
     } finally {
       setBusy(false);
     }
@@ -122,6 +152,7 @@ export function WorkspaceView({
       return;
     }
     setError(null);
+    setNotice(null);
     await resetOnboarding(workspaceId);
     setMessages([]);
     await onContextChanged();
@@ -196,6 +227,7 @@ export function WorkspaceView({
               messages={messages}
               busy={busy}
               error={error}
+              notice={notice}
               onSend={(p) => run(p)}
               placeholder="Answer the agent, or ask it to update the context…"
               emptyHint="Start by onboarding this workspace."
@@ -474,6 +506,23 @@ function NotesEditor({
         )}
       </Stack>
     </Stack>
+  );
+}
+
+/**
+ * Heuristic: did the assistant's summary claim it persisted the workspace
+ * context? Used only to flag a mismatch when `contextSaved` is false, so a
+ * model that talks about saving without calling `save_context` can't leave the
+ * user believing memory changed.
+ */
+export function claimsContextSaved(text: string): boolean {
+  return (
+    /\b(context|memory|onboarding_context)\b.{0,40}\b(saved|updated|committed|written|persisted)\b/i.test(
+      text,
+    ) ||
+    /\b(saved|updated|committed|written|persisted)\b.{0,40}\b(context|memory)\b/i.test(
+      text,
+    )
   );
 }
 

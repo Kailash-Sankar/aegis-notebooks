@@ -15,6 +15,7 @@ export function ChatPanel({
   workspaceId,
   notebookId,
   onRunComplete,
+  onReportSaved,
   initialPrompt,
   initialLabel,
   onInitialPromptConsumed,
@@ -22,6 +23,8 @@ export function ChatPanel({
   workspaceId: string;
   notebookId: string;
   onRunComplete: () => void;
+  /** Called when the agent wrote a full-page report this turn. */
+  onReportSaved?: () => void;
   initialPrompt?: string;
   initialLabel?: string;
   onInitialPromptConsumed?: () => void;
@@ -30,6 +33,7 @@ export function ChatPanel({
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
@@ -65,8 +69,18 @@ export function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, initialPrompt, messages.length]);
 
+  async function reloadTranscript(): Promise<void> {
+    try {
+      const entries = await getTranscript(workspaceId, notebookId);
+      setMessages(transcriptToMessages(entries));
+    } catch {
+      // Keep the current view if the transcript can't be read.
+    }
+  }
+
   async function send(prompt: string, label?: string) {
     setError(null);
+    setNotice(null);
     setBusy(true);
     setMessages((prev) => [
       ...prev,
@@ -74,12 +88,20 @@ export function ChatPanel({
       { role: "assistant", text: "" },
     ]);
     try {
-      await streamChat(workspaceId, notebookId, prompt, (delta) =>
+      const result = await streamChat(workspaceId, notebookId, prompt, (delta) =>
         appendAssistantDelta(setMessages, delta),
       );
+      if (result.contextSaved) setNotice("Workspace context saved.");
+      if (result.reportSaved) {
+        setNotice("Report saved.");
+        onReportSaved?.();
+      }
       onRunComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      // The runner persists the turn even when it errors; reconcile the
+      // bubbles with disk so the UI matches what the model actually saw.
+      await reloadTranscript();
     } finally {
       setBusy(false);
     }
@@ -96,6 +118,7 @@ export function ChatPanel({
         messages={messages}
         busy={busy}
         error={error}
+        notice={notice}
         onSend={send}
         placeholder="e.g. Chart total amount by region"
         emptyHint="Ask the agent to inspect your data or build a dashboard."

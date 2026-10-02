@@ -25,14 +25,33 @@ export interface WidgetSpecBody {
   /** Inline data, used when query is absent. */
   data?: Record<string, unknown>[];
   chart?: {
-    type?: "bar" | "line" | "area" | "pie";
+    type?: "bar" | "line" | "area" | "pie" | "kpi" | "table" | "stackedBar" | "heatmap";
     x?: string;
     y?: string;
     /** Optional second series (e.g. revenue vs pipeline). */
     y2?: string;
+    /** stackedBar: columns to stack. Inferred from numeric columns when omitted. */
+    series?: string[];
+    /** heatmap: column holding the cell value. Defaults to `y`. */
+    value?: string;
+    /** table: explicit column order. Defaults to the query's columns. */
+    columns?: string[];
   };
   /** Freeform markup for artifact widgets. */
   html?: string;
+  /** Explicit iframe height in px for artifact widgets. */
+  height?: number;
+}
+
+/**
+ * Canvas placement on a 12-column grid. `w` is the column span, `h` a row
+ * hint. The canvas honors `x`/`w` for columns and orders by `y`.
+ */
+export interface WidgetLayout {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
 }
 
 export interface Widget {
@@ -66,6 +85,32 @@ export interface OnboardingStatus {
   stale: boolean;
   lastOnboardedAt: string | null;
   tables: number;
+}
+
+/** Result of one streamed agent turn (the SSE `done` event). */
+export interface AgentRunResult {
+  /** Final assistant text for the turn. */
+  text: string;
+  /** Explicit signal that the agent called save_context this turn. */
+  contextSaved: boolean;
+  /** Explicit signal that the agent wrote a full-page report this turn. */
+  reportSaved: boolean;
+  /** Workspace onboarding status after the turn. */
+  onboarding: OnboardingStatus;
+}
+
+/** Metadata for a full-page static report. */
+export interface ReportMeta {
+  id: string;
+  notebookId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Metadata plus body of a full-page static report. */
+export interface Report extends ReportMeta {
+  html: string;
 }
 
 export interface MetadataTable {

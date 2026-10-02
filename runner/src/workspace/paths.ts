@@ -17,7 +17,8 @@ import { join } from "node:path";
  *       ├── notebook.json
  *       ├── chat_history.json
  *       ├── execution.log
- *       └── generated_assets/
+ *       ├── generated_assets/
+ *       └── reports/              # full-page static reports + index.json
  */
 export interface WorkspacePaths {
   root: string;
@@ -41,6 +42,10 @@ export interface NotebookPaths {
   chatHistory: string;
   executionLog: string;
   assetsDir: string;
+  /** Full-page static reports (Tier 1): index.json + <id>.html. */
+  reportsDir: string;
+  reportsIndex: string;
+  reportFile(reportId: string): string;
 }
 
 export function workspacePaths(rootAbs: string, workspaceId: string): WorkspacePaths {
@@ -59,12 +64,16 @@ export function workspacePaths(rootAbs: string, workspaceId: string): WorkspaceP
     notebooksDir: join(root, "notebooks"),
     notebook(notebookId: string): NotebookPaths {
       const nb = join(root, "notebooks", notebookId);
+      const reportsDir = join(nb, "reports");
       return {
         root: nb,
         manifest: join(nb, "notebook.json"),
         chatHistory: join(nb, "chat_history.json"),
         executionLog: join(nb, "execution.log"),
         assetsDir: join(nb, "generated_assets"),
+        reportsDir,
+        reportsIndex: join(reportsDir, "index.json"),
+        reportFile: (reportId: string) => join(reportsDir, `${reportId}.html`),
       };
     },
   };

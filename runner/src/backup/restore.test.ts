@@ -63,6 +63,7 @@ class FakeRegistry implements RegistryProjection {
   async upsertWidget(w: WidgetSpec): Promise<void> {
     this.widgets.push(w);
   }
+  async updateWidgetPosition(): Promise<void> {}
   async getWorkspace(id: string): Promise<Workspace | null> {
     return this.workspaces.get(id) ?? null;
   }

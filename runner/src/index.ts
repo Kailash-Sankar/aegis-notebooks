@@ -12,7 +12,8 @@ import { QuotaService, QuotaError } from "./ingest/quota.js";
 import { ingestUpload, type IngestDeps } from "./ingest/upload.js";
 import { WorkspaceManager } from "./workspace/manager.js";
 import { runQuery } from "./workspace/query.js";
-import { AgentRunner } from "./agent/session.js";
+import { deleteReport, listReports, readReport } from "./workspace/reports.js";
+import { AgentRunner, type AgentRunResult } from "./agent/session.js";
 
 const config = loadConfig();
 const registry = createRegistry(config);
@@ -262,6 +263,52 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return send(res, 200, await registry.listWidgets(parts[3]));
     }
 
+    // PUT /workspaces/:id/notebooks/:nbId/layout  (persist drag/resize)
+    if (
+      method === "PUT" &&
+      parts[2] === "notebooks" &&
+      parts[4] === "layout" &&
+      parts[3]
+    ) {
+      const body = await readJson<{ layout?: unknown }>(req);
+      const items = Array.isArray(body.layout) ? body.layout : [];
+      // Only allow ids that actually belong to this notebook.
+      const owned = new Set((await registry.listWidgets(parts[3])).map((w) => w.id));
+      let updated = 0;
+      for (const item of items) {
+        const { id, x, y, w, h } = (item ?? {}) as Record<string, unknown>;
+        if (typeof id !== "string" || !owned.has(id)) continue;
+        await registry.updateWidgetPosition(id, { x, y, w, h });
+        updated += 1;
+      }
+      return send(res, 200, { ok: true, updated });
+    }
+
+    // GET|POST /workspaces/:id/notebooks/:nbId/reports  (agent writes via tool)
+    if (method === "GET" && parts[2] === "notebooks" && parts[4] === "reports" && parts.length === 5 && parts[3]) {
+      const nb = workspaces.pathsFor(workspaceId).notebook(parts[3]);
+      return send(res, 200, await listReports(nb.reportsDir));
+    }
+
+    // GET|DELETE /workspaces/:id/notebooks/:nbId/reports/:reportId
+    if (
+      parts[2] === "notebooks" &&
+      parts[4] === "reports" &&
+      parts[5] &&
+      parts.length === 6 &&
+      parts[3]
+    ) {
+      const nb = workspaces.pathsFor(workspaceId).notebook(parts[3]);
+      if (method === "GET") {
+        const report = await readReport(nb.reportsDir, parts[5]);
+        return report ? send(res, 200, report) : send(res, 404, { error: "not found" });
+      }
+      if (method === "DELETE") {
+        const removed = await deleteReport(nb.reportsDir, parts[5]);
+        return send(res, removed ? 200 : 404, { ok: removed });
+      }
+    }
+
     // GET /workspaces/:id/notebooks/:nbId/transcript
     if (method === "GET" && parts[2] === "notebooks" && parts[4] === "transcript" && parts[3]) {
       const nb = workspaces.pathsFor(workspaceId).notebook(parts[3]);
@@ -287,7 +334,7 @@ function streamChat(
 /** Shared SSE runner for any agent operation. */
 async function streamRun(
   res: ServerResponse,
-  run: (onEvent: (event: unknown) => void) => Promise<string>,
+  run: (onEvent: (event: unknown) => void) => Promise<AgentRunResult>,
   onSuccess?: () => Promise<void>,
 ): Promise<void> {
   res.writeHead(200, {
@@ -301,9 +348,16 @@ async function streamRun(
   };
 
   try {
-    const text = await run((event) => sendEvent("pi", event));
+    const result = await run((event) => sendEvent("pi", event));
     if (onSuccess) await onSuccess();
-    sendEvent("done", { text });
+    // `contextSaved` is the explicit signal that save_context ran this turn;
+    // `onboarding` is the post-turn workspace status.
+    sendEvent("done", {
+      text: result.text,
+      contextSaved: result.contextSaved,
+      reportSaved: result.reportSaved,
+      onboarding: result.onboarding,
+    });
   } catch (err) {
     sendEvent("error", { error: err instanceof Error ? err.message : String(err) });
   } finally {

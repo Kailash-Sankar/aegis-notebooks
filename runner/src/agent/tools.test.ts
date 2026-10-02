@@ -16,6 +16,7 @@ async function makeContext(): Promise<ToolContext> {
     workspaceRoot: root,
     duckdbPath: join(root, "workspace.duckdb"),
     assetsDir: join(root, "memory"),
+    reportsDir: join(root, "memory", "reports"),
     config: loadConfig({}),
     registry: new NullRegistry(),
   };
