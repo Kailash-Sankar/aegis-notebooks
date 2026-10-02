@@ -29,6 +29,8 @@ const EnvSchema = z.object({
   RUSTFS_ACCESS_KEY: z.string().optional(),
   RUSTFS_SECRET_KEY: z.string().optional(),
   RUSTFS_BUCKET: z.string().default("aegis-backups"),
+  // Raw lake authority (ADR 0007). Separate bucket, same RustFS instance.
+  RUSTFS_RAW_BUCKET: z.string().default("aegis-raw"),
 
   // Quotas (ADR 0005)
   QUOTA_TOTAL_BYTES: z.coerce.number().default(10 * 1024 ** 3),

@@ -167,51 +167,49 @@ CREATE TABLE stream_events (
 The onboarding agent produces this once per source (and again on drift). It is
 the *only* place that encodes source semantics.
 
-Location on disk (authority): `sources/{source}/contract.yaml`.
+Location on disk (authority): `sources/{source}/contract.json`.
 
-```yaml
-version: 1
-source: twitch-mock
-dataset: streamers
-
-sync:
-  mode: incremental            # full | incremental
-  endpoint: /v1/streamers
-  cursor_field: updated_at     # watermark column
-  cursor_param: updated_since
-  page_size: 500
-
-load:
-  target: clickhouse
-  layer: bronze
-  mode: upsert                 # append | upsert
-  dedupe: latest_by_key        # -> ReplacingMergeTree(_version)
-  key: [channel_id]
-
-columns:
-  channel_id:   { type: UInt64 }
-  display_name: { type: String }
-  language:     { type: LowCardinality(String) }
-  followers:    { type: UInt64 }
-  partner:      { type: UInt8 }
-  mature:       { type: UInt8 }
-  updated_at:   { type: DateTime64(3), event_time: true }
-
-quality:
-  - not_null: [channel_id, display_name]
-  - unique:   [channel_id]
-
-physical:
-  partition_by: toYYYYMM(updated_at)
-  order_by: [channel_id]
+```json
+{
+  "version": 1,
+  "source": "twitch-mock",
+  "dataset": "streamers",
+  "baseUrl": "http://127.0.0.1:8099",
+  "sync": {
+    "mode": "incremental",
+    "endpoint": "/v1/streamers",
+    "cursorField": "updated_at",
+    "cursorParam": "updated_since",
+    "pageSize": 500
+  },
+  "load": {
+    "target": "clickhouse",
+    "layer": "bronze",
+    "mode": "upsert",
+    "dedupe": "latest_by_key",
+    "key": ["channel_id"]
+  },
+  "columns": {
+    "channel_id":   { "type": "UInt64" },
+    "display_name": { "type": "String" },
+    "language":     { "type": "LowCardinality(String)" },
+    "followers":    { "type": "UInt64" },
+    "partner":      { "type": "UInt8" },
+    "mature":       { "type": "UInt8" },
+    "updated_at":   { "type": "DateTime64(3)", "eventTime": true }
+  },
+  "quality": { "notNull": ["channel_id", "display_name"], "unique": ["channel_id"] },
+  "physical": { "partitionBy": "toYYYYMM(updated_at)", "orderBy": ["channel_id"] }
+}
 ```
 
 Notes:
-- `sync_mode` is a *source capability*, not a preference.
-- `event_time` + `partition_by` + `order_by` drive the physical layout.
-- `pii: true` marks columns for future masking.
-- A `schema_fingerprint` (hash of the column set) is stored alongside; a change
-  invalidates the contract and re-opens onboarding.
+- `sync.mode` is a *source capability*, not a preference.
+- `eventTime` + `physical.partitionBy` + `physical.orderBy` drive the physical
+  layout.
+- `"pii": true` marks columns for future masking.
+- A `schema_fingerprint` (hash of the column set + key) is computed from the
+  contract; a change invalidates it and re-opens onboarding.
 
 ### 4.3 Ingestion gateway
 
@@ -226,12 +224,14 @@ Responsibilities (fast, dumb, idempotent):
 
 ### 4.4 Landing and the chunk manifest
 
-**Raw path convention (RustFS):**
+**Raw path convention (RustFS), content-addressed:**
 
 ```
-raw/{tenant_id}/{workspace_id}/{source}/{dataset}/{YYYY-MM-DD}/{chunk_id}.jsonl
+raw/{tenant_id}/{workspace_id}/{source}/{dataset}/{content_hash}.jsonl
 manifests/{tenant_id}/{workspace_id}/{chunk_id}.json
 ```
+
+Keys are content-addressed, so re-landing identical bytes is a no-op (dedupe).
 
 **Chunk manifest** (also the queue message — claim check):
 
@@ -393,9 +393,8 @@ The manifest is the authority for what is cached; DuckDB views glob the Parquet.
 ├── data/                          # ad-hoc uploads (existing)
 ├── sources/                       # NEW
 │   └── {source}/
-│       ├── contract.yaml          # agent-authored, authority
-│       ├── contract.json          # compiled form (types, fingerprint)
-│       └── state.json             # cursor/watermark, last chunk, lag
+│       ├── contract.json          # agent-authored, authority
+│       └── state.json             # cursor/watermark, last run
 ├── hydrate/                       # NEW
 │   └── {asOf}/manifest.json + *.parquet
 ├── memory/                        # existing
@@ -483,7 +482,7 @@ per notebook query/hydration.
     ("reprocess range"); no user-facing action yet. *Why:* backfills are a
     correctness problem first; avoids expensive accidental recomputes.
 14. **Contracts are disk-authoritative with a PocketBase metadata projection.**
-    Body in `sources/{source}/contract.yaml`; only pointers/status projected to
+    Body in `sources/{source}/contract.json`; only pointers/status projected to
     PB. *Why:* the ADR 0002 invariant; enables cheap source/drift listing.
 
 ---

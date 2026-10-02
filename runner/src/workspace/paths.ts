@@ -9,6 +9,8 @@ import { join } from "node:path";
  *   ├── workspace.json          # on-disk manifest (authority for existence)
  *   ├── workspace.duckdb
  *   ├── data/                   # raw uploads = the local working set
+ *   ├── sources/                # per-source contracts + connector state
+ *   │   └── {source}/contract.json, state.json
  *   ├── memory/
  *   │   ├── metadata_schema.json
  *   │   ├── onboarding_context.md
@@ -32,6 +34,10 @@ export interface WorkspacePaths {
   /** Workspace-scoped onboarding state + transcript (not a notebook). */
   onboardingState: string;
   onboardingTranscript: string;
+  /** Per-source contracts and connector state (`sources/{source}/`). */
+  sourcesDir: string;
+  sourceContract(source: string): string;
+  sourceState(source: string): string;
   notebooksDir: string;
   notebook(notebookId: string): NotebookPaths;
 }
@@ -61,6 +67,9 @@ export function workspacePaths(rootAbs: string, workspaceId: string): WorkspaceP
     userNotes: join(root, "memory", "user_notes.md"),
     onboardingState: join(root, "memory", "onboarding.json"),
     onboardingTranscript: join(root, "memory", "onboarding_transcript.json"),
+    sourcesDir: join(root, "sources"),
+    sourceContract: (source: string) => join(root, "sources", source, "contract.json"),
+    sourceState: (source: string) => join(root, "sources", source, "state.json"),
     notebooksDir: join(root, "notebooks"),
     notebook(notebookId: string): NotebookPaths {
       const nb = join(root, "notebooks", notebookId);

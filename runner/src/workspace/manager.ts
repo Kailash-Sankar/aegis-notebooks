@@ -61,6 +61,7 @@ export class WorkspaceManager {
     const paths = this.pathsFor(id);
     await mkdir(paths.dataDir, { recursive: true });
     await mkdir(paths.memoryDir, { recursive: true });
+    await mkdir(paths.sourcesDir, { recursive: true });
     await mkdir(paths.notebooksDir, { recursive: true });
 
     await writeFile(
@@ -98,6 +99,7 @@ export class WorkspaceManager {
     const paths = this.pathsFor(meta.id);
     await mkdir(paths.dataDir, { recursive: true });
     await mkdir(paths.memoryDir, { recursive: true });
+    await mkdir(paths.sourcesDir, { recursive: true });
     await mkdir(paths.notebooksDir, { recursive: true });
 
     if (!existsSync(paths.metadataSchema)) {

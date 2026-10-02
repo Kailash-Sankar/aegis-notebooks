@@ -40,6 +40,30 @@ export interface UploadRecord {
 
 export type BackupKind = "upload" | "snapshot";
 
+/**
+ * A chunk landed in the raw lake (ADR 0007/0008). This manifest is the message
+ * that travels the queue (claim check): it points at immutable bytes in
+ * RustFS; it never carries the payload itself.
+ */
+export interface ChunkManifest {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  source: string;
+  dataset: string;
+  contractVersion: number;
+  schemaFingerprint: string;
+  /** Watermark range this chunk represents. */
+  sync: { mode: string; from?: string; to?: string };
+  /** Object key in the raw store (RustFS). */
+  rawKey: string;
+  rows: number;
+  bytes: number;
+  contentHash: string;
+  attempt: number;
+  createdAt: string;
+}
+
 export interface BackupRecord {
   id: string;
   workspaceId: string;
