@@ -516,5 +516,5 @@ with the trigger that would revisit them:
 | Backfill UX | **Operator-only** endpoint/CLI seam | Mechanics stable + clear product case + per-workspace concurrency limits |
 | Contract storage | **Disk authority + PB metadata projection** | Never (body); projection fields may grow |
 
-Two items are worth promoting to standalone ADRs before Phase 1: **RustFS as
-raw authority** (changes ADR 0001) and **claim-check transport**.
+Promoted to standalone ADRs: **RustFS as raw authority** ([ADR 0007](../adr/0007-rustfs-raw-lake-authority.md),
+changes ADR 0001) and **claim-check transport** ([ADR 0008](../adr/0008-claim-check-transport.md)).

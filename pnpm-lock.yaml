@@ -166,6 +166,18 @@ importers:
 
   .: {}
 
+  mock-source:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.0
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.15
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   runner:
     dependencies:
       '@aws-sdk/client-s3':

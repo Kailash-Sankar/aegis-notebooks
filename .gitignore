@@ -16,5 +16,8 @@ workspaces/*
 *.duckdb
 *.duckdb.wal
 
+# Mock source local database (generated)
+mock-source/data/
+
 # OS
 .DS_Store

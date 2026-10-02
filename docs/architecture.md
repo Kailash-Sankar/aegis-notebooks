@@ -166,3 +166,5 @@ pids/memory/cpu limits.
 - [ADR 0004 — Two widget modes: live components and static artifacts](adr/0004-widget-modes-component-vs-artifact.md)
 - [ADR 0005 — Hard caps instead of retrieval/memory subsystems](adr/0005-quotas-and-caps.md)
 - [ADR 0006 — Single-user now, multi-user-ready](adr/0006-single-user-auth-shim.md)
+- [ADR 0007 — RustFS raw is the lake authority](adr/0007-rustfs-raw-lake-authority.md)
+- [ADR 0008 — Claim-check transport](adr/0008-claim-check-transport.md)

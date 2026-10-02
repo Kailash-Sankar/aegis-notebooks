@@ -1,6 +1,7 @@
 packages:
   - runner
   - web
+  - mock-source
 
 # pnpm blocks dependency build scripts by default. These need theirs to install
 # platform binaries / generated code.
