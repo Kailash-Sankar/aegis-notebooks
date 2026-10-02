@@ -151,6 +151,13 @@ Pi's `cwd` is the workspace directory. Phase 2: one container per workspace.
 The compose runner applies read-only rootfs, `/tmp` tmpfs with `HOME=/tmp`, and
 pids/memory/cpu limits.
 
+## Proposed designs
+
+- [Ingestion, Warehouse & Serving Platform](design/ingestion-platform.md) —
+  proposed (not yet implemented): mocked OLTP source, contract-driven ELT into
+  ClickHouse, Redpanda transport, Inngest orchestration, windowed hydration into
+  DuckDB, and low-noise observability. Extends ADR 0001/0002.
+
 ## Decisions
 
 - [ADR 0001 — Local-first working set, RustFS as recovery set](adr/0001-local-first-storage-and-rustfs-backup.md)
