@@ -1,6 +1,8 @@
 import type {
   AgentRunResult,
   DataFile,
+  HydrationManifest,
+  Insight,
   Notebook,
   QueryResult,
   Report,
@@ -72,6 +74,19 @@ export function listWidgets(workspaceId: string, notebookId: string): Promise<Wi
   return fetch(`${BASE}/workspaces/${workspaceId}/notebooks/${notebookId}/widgets`).then(
     json<Widget[]>,
   );
+}
+
+export function listInsights(workspaceId: string): Promise<Insight[]> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/insights`).then(
+    json<Insight[]>,
+  );
+}
+
+export function getHydration(workspaceId: string): Promise<HydrationManifest | null> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/hydrate`).then((res) => {
+    if (res.status === 404) return null;
+    return json<HydrationManifest>(res);
+  });
 }
 
 export function listReports(

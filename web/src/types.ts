@@ -126,6 +126,28 @@ export interface SuggestedAnalysis {
   createdAt: string;
 }
 
+/** A background-computed headline finding (gold_insights). */
+export interface Insight {
+  kind: string;
+  channel_id: number | string;
+  metric: string;
+  value: number;
+  headline: string;
+  as_of: string;
+}
+
+/** Local hydration cache metadata (a window of the warehouse as Parquet). */
+export interface HydrationManifest {
+  workspaceId: string;
+  asOf: string;
+  window: { from: string; to: string; days: number };
+  tables: Record<
+    string,
+    { view: string; watermark: string; partitions: Record<string, unknown> }
+  >;
+  createdAt: string;
+}
+
 export interface WorkspaceContext {
   status: OnboardingStatus;
   onboardingContext: string;

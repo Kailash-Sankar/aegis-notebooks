@@ -530,3 +530,86 @@ body {
   background: color-mix(in srgb, #6366f1 16%, transparent);
   color: #4f46e5;
 }
+
+/* Insights + local warehouse surface (notebook "Insights" tab). */
+.aegis-insights {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.aegis-insights-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aegis-insights-title {
+  font-weight: 600;
+}
+
+.aegis-muted {
+  color: var(--color-text-secondary, #71717a);
+  font-size: 0.8125rem;
+}
+
+.aegis-error {
+  color: #b91c1c;
+}
+
+.aegis-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.aegis-insight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface, #fafafa);
+}
+
+.aegis-insight-kind {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary, #71717a);
+}
+
+.aegis-insight-headline {
+  font-weight: 500;
+}
+
+.aegis-insight-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.aegis-warehouse-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.aegis-warehouse-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary, #71717a);
+}
+
+.aegis-warehouse-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+}

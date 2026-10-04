@@ -8,6 +8,7 @@ import {
   getContext,
   listData,
   listNotebooks,
+  listInsights,
   listReports,
   listWidgets,
   listWorkspaces,
@@ -21,6 +22,7 @@ import { EmptyState } from "./components/EmptyState.js";
 import { ChatPanel } from "./components/ChatPanel.js";
 import { Canvas } from "./components/Canvas.js";
 import { ReportView } from "./components/ReportView.js";
+import { InsightsView } from "./components/InsightsView.js";
 import { WorkspaceView } from "./components/WorkspaceView.js";
 
 export function App() {
@@ -31,11 +33,12 @@ export function App() {
   const [dataFiles, setDataFiles] = useState<DataFile[]>([]);
   const [context, setContext] = useState<WorkspaceContext | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [notebookView, setNotebookView] = useState<"dashboard" | "report">(
-    "dashboard",
-  );
+  const [notebookView, setNotebookView] = useState<
+    "dashboard" | "report" | "insights"
+  >("dashboard");
   const [widgetCount, setWidgetCount] = useState(0);
   const [reportCount, setReportCount] = useState(0);
+  const [insightCount, setInsightCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -96,6 +99,11 @@ export function App() {
     listReports(workspaceId, notebookId)
       .then((list) => {
         if (!cancelled) setReportCount(list.length);
+      })
+      .catch(() => undefined);
+    listInsights(workspaceId)
+      .then((list) => {
+        if (!cancelled) setInsightCount(list.length);
       })
       .catch(() => undefined);
     return () => {
@@ -292,21 +300,23 @@ export function App() {
                 </div>
                 <div className="aegis-pane aegis-pane--canvas">
                   <div className="aegis-view-switch" role="tablist">
-                    {(["dashboard", "report"] as const).map((v) => (
+                    {([
+                      ["dashboard", "Dashboard", widgetCount],
+                      ["report", "Report", reportCount],
+                      ["insights", "Insights", insightCount],
+                    ] as const).map(([id, label, count]) => (
                       <button
-                        key={v}
+                        key={id}
                         role="tab"
-                        aria-selected={notebookView === v}
+                        aria-selected={notebookView === id}
                         className={
                           "aegis-view-tab" +
-                          (notebookView === v ? " is-active" : "")
+                          (notebookView === id ? " is-active" : "")
                         }
-                        onClick={() => setNotebookView(v)}
+                        onClick={() => setNotebookView(id)}
                       >
-                        {v === "dashboard" ? "Dashboard" : "Report"}
-                        <span className="aegis-view-count">
-                          {v === "dashboard" ? widgetCount : reportCount}
-                        </span>
+                        {label}
+                        <span className="aegis-view-count">{count}</span>
                       </button>
                     ))}
                   </div>
@@ -315,6 +325,11 @@ export function App() {
                       <ReportView
                         workspaceId={workspaceId}
                         notebookId={notebookId}
+                        refreshToken={refreshToken}
+                      />
+                    ) : notebookView === "insights" ? (
+                      <InsightsView
+                        workspaceId={workspaceId}
                         refreshToken={refreshToken}
                       />
                     ) : (

@@ -73,6 +73,16 @@ the workspace directory; the filesystem is the source of truth.
     \`var(--rp-accent)\` for colour. Keep a short caveats/notes section.
 - Built-in \`read\`/\`write\`/\`edit\`/\`bash\`/\`grep\` for everything else.
 
+## Local warehouse
+
+When a workspace has been hydrated, DuckDB exposes \`hydrate_<table>\` views over a
+local Parquet window (e.g. \`hydrate_gold_stream_daily\`,
+\`hydrate_silver_stream_events\`, \`hydrate_gold_channel_totals\`) — query them with
+\`duckdb_query\`. A hydrated-warehouse summary (views, partitions, data as-of) is
+injected when available. Headline findings live in \`gold_insights\` and are
+served at \`GET /workspaces/<id>/insights\`. Prefer these over re-deriving from
+raw files.
+
 ## Working rules
 
 1. **Ground every claim in data.** Run a query before asserting something.

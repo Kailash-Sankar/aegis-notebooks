@@ -12,6 +12,7 @@ import type { Config } from "../config.js";
 import type { RegistryProjection } from "../registry/pocketbase.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
 import { createAnalyticsTools, type ToolContext } from "./tools.js";
+import { buildWarehouseContext } from "../workspace/warehouse-context.js";
 import {
   buildWorkspaceInstructions,
   ONBOARDING_PROMPT,
@@ -223,6 +224,9 @@ export class AgentRunner {
       },
     };
 
+    // Advertise the hydrated warehouse (if any) alongside the workspace context.
+    const warehouseContext = await buildWarehouseContext(paths);
+
     // Inject workspace context (onboarding memory) as an AGENTS.md file.
     const loader = new DefaultResourceLoader({
       cwd: paths.root,
@@ -233,6 +237,12 @@ export class AgentRunner {
           path: WORKSPACE_INSTRUCTIONS_PATH,
           content: buildWorkspaceInstructions(),
         });
+        if (warehouseContext) {
+          files.push({
+            path: `${paths.root}/.warehouse_context.md`,
+            content: warehouseContext,
+          });
+        }
         if (existsSync(paths.onboardingContext)) {
           files.push({
             path: paths.onboardingContext,
