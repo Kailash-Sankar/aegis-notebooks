@@ -352,6 +352,10 @@ Physical-layout lessons to exercise: partition pruning, sparse primary index via
 Notebooks never query ClickHouse live. A hydration job exports a window to
 Parquet; DuckDB reads the Parquet.
 
+Implemented (`runner/src/hydrate/`): month-partition Parquet under
+`hydrate/<table>/`, a manifest, and `hydrate_<table>` DuckDB views; exposed via
+`GET/POST /workspaces/:id/hydrate`.
+
 - **Default window:** rolling **90 days**, overridable per notebook.
 - **Consistency:** hydrate **as of a watermark** `T` (all tables filtered to
   `≤ T`); stamp the notebook "data as of `T`". Enables reproducibility / time

@@ -160,6 +160,7 @@ pnpm build:web
 | PUT | `/workspaces/:id/notes` | save user notes |
 | POST | `/workspaces/:id/query` | read-only SQL → rows |
 | POST | `/workspaces/:id/sources/:source/pull` | pull + land a source chunk (operator) |
+| GET/POST | `/workspaces/:id/hydrate` | fetch / refresh the DuckDB hydration window |
 | POST | `/workspaces/:id/restore` | rebuild from RustFS |
 | POST | `/workspaces/:id/onboard` | start onboarding (SSE) |
 | POST | `/workspaces/:id/onboard/chat` | continue onboarding chat (SSE) |

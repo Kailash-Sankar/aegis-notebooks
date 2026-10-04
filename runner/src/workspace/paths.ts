@@ -11,6 +11,7 @@ import { join } from "node:path";
  *   ├── data/                   # raw uploads = the local working set
  *   ├── sources/                # per-source contracts + connector state
  *   │   └── {source}/contract.json, state.json
+ *   ├── hydrate/                # cached Parquet window + manifest.json
  *   ├── memory/
  *   │   ├── metadata_schema.json
  *   │   ├── onboarding_context.md
@@ -38,6 +39,11 @@ export interface WorkspacePaths {
   sourcesDir: string;
   sourceContract(source: string): string;
   sourceState(source: string): string;
+  /** Hydration cache: Parquet exports of a warehouse window. */
+  hydrateDir: string;
+  hydrateManifest: string;
+  hydrateTableDir(table: string): string;
+  hydrateParquet(table: string, partition: string): string;
   notebooksDir: string;
   notebook(notebookId: string): NotebookPaths;
 }
@@ -70,6 +76,11 @@ export function workspacePaths(rootAbs: string, workspaceId: string): WorkspaceP
     sourcesDir: join(root, "sources"),
     sourceContract: (source: string) => join(root, "sources", source, "contract.json"),
     sourceState: (source: string) => join(root, "sources", source, "state.json"),
+    hydrateDir: join(root, "hydrate"),
+    hydrateManifest: join(root, "hydrate", "manifest.json"),
+    hydrateTableDir: (table: string) => join(root, "hydrate", table),
+    hydrateParquet: (table: string, partition: string) =>
+      join(root, "hydrate", table, `${partition}.parquet`),
     notebooksDir: join(root, "notebooks"),
     notebook(notebookId: string): NotebookPaths {
       const nb = join(root, "notebooks", notebookId);

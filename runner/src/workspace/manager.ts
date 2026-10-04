@@ -62,6 +62,7 @@ export class WorkspaceManager {
     await mkdir(paths.dataDir, { recursive: true });
     await mkdir(paths.memoryDir, { recursive: true });
     await mkdir(paths.sourcesDir, { recursive: true });
+    await mkdir(paths.hydrateDir, { recursive: true });
     await mkdir(paths.notebooksDir, { recursive: true });
 
     await writeFile(
@@ -100,6 +101,7 @@ export class WorkspaceManager {
     await mkdir(paths.dataDir, { recursive: true });
     await mkdir(paths.memoryDir, { recursive: true });
     await mkdir(paths.sourcesDir, { recursive: true });
+    await mkdir(paths.hydrateDir, { recursive: true });
     await mkdir(paths.notebooksDir, { recursive: true });
 
     if (!existsSync(paths.metadataSchema)) {

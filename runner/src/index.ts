@@ -27,6 +27,9 @@ import { createWarehouse } from "./warehouse/client.js";
 import { processManifest, type LoaderDeps } from "./warehouse/loader.js";
 import { createIngestWorkflows, INGEST_EVENT } from "./workflows/inngest.js";
 import { withTimeout } from "./util/timeout.js";
+import { hydrate } from "./hydrate/hydration.js";
+import { readManifest } from "./hydrate/manifest.js";
+import { createHydrateViews } from "./hydrate/views.js";
 
 const config = loadConfig();
 const registry = createRegistry(config);
@@ -222,6 +225,35 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       await workspaces.require(workspaceId);
       const paths = workspaces.pathsFor(workspaceId);
       return send(res, 200, await runQuery(config, paths.duckdb, body.sql));
+    }
+
+    // GET|POST /workspaces/:id/hydrate  -- cache a warehouse window for DuckDB
+    if (parts[2] === "hydrate" && parts.length === 3) {
+      await workspaces.require(workspaceId);
+      const paths = workspaces.pathsFor(workspaceId);
+      if (method === "GET") {
+        const manifest = await readManifest(paths.hydrateManifest);
+        return manifest
+          ? send(res, 200, manifest)
+          : send(res, 404, { error: "not hydrated" });
+      }
+      if (method === "POST") {
+        const body = await readJson<{
+          days?: number;
+          asOf?: string;
+          tables?: string[];
+        }>(req);
+        const manifest = await hydrate(
+          { warehouse, paths },
+          {
+            ...(body.days !== undefined ? { days: body.days } : {}),
+            ...(body.asOf !== undefined ? { asOf: body.asOf } : {}),
+            ...(body.tables !== undefined ? { tables: body.tables } : {}),
+          },
+        );
+        const views = await createHydrateViews(config, paths, manifest);
+        return send(res, 200, { ...manifest, views });
+      }
     }
 
     // POST /workspaces/:id/sources/:source/pull  (operator-only: pull + land)

@@ -13,6 +13,8 @@ export interface Warehouse {
   ensureTable(createSql: string): Promise<void>;
   /** Run an arbitrary DDL/DML statement (used by transforms). */
   command(sql: string): Promise<void>;
+  /** Run a SELECT and return the result encoded as Parquet bytes. */
+  exportParquet(sql: string): Promise<Uint8Array>;
   /** Insert rows as `JSONEachRow`. */
   insert(table: string, rows: Array<Record<string, unknown>>): Promise<void>;
   close(): Promise<void>;
@@ -25,6 +27,7 @@ export class MemoryWarehouse implements Warehouse {
   private readonly tables = new Map<string, Array<Record<string, unknown>>>();
 
   readonly commands: string[] = [];
+  readonly exports: string[] = [];
 
   async ensureTable(createSql: string): Promise<void> {
     this.ddl.push(createSql);
@@ -32,6 +35,11 @@ export class MemoryWarehouse implements Warehouse {
 
   async command(sql: string): Promise<void> {
     this.commands.push(sql);
+  }
+
+  async exportParquet(sql: string): Promise<Uint8Array> {
+    this.exports.push(sql);
+    return Buffer.from(`parquet:${this.exports.length}`);
   }
 
   async insert(
@@ -54,9 +62,15 @@ export class ClickHouseWarehouse implements Warehouse {
   readonly enabled = true;
   readonly database: string;
   private readonly client: ClickHouseClient;
+  private readonly url: string;
+  private readonly user: string;
+  private readonly password: string;
 
   constructor(config: Config) {
     this.database = config.CLICKHOUSE_DB;
+    this.url = config.CLICKHOUSE_URL ?? "";
+    this.user = config.CLICKHOUSE_USER;
+    this.password = config.CLICKHOUSE_PASSWORD;
     this.client = createClient({
       url: config.CLICKHOUSE_URL,
       username: config.CLICKHOUSE_USER,
@@ -71,6 +85,28 @@ export class ClickHouseWarehouse implements Warehouse {
 
   async command(sql: string): Promise<void> {
     await this.client.command({ query: sql });
+  }
+
+  async exportParquet(sql: string): Promise<Uint8Array> {
+    // Use the HTTP interface directly: the client abstracts result formats and
+    // does not hand back raw Parquet bytes cleanly. `FORMAT Parquet` on the
+    // query returns the encoded file.
+    const url = new URL(this.url);
+    url.searchParams.set("database", this.database);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-ClickHouse-User": this.user,
+        "X-ClickHouse-Key": this.password,
+      },
+      body: `${sql} FORMAT Parquet`,
+    });
+    if (!res.ok) {
+      throw new Error(
+        `ClickHouse export failed: ${res.status} ${await res.text()}`,
+      );
+    }
+    return new Uint8Array(await res.arrayBuffer());
   }
 
   async insert(
