@@ -2,6 +2,7 @@ import "./env.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { createRegistry } from "./registry/pocketbase.js";
 import { reconcile } from "./registry/reconcile.js";
@@ -30,6 +31,9 @@ import { withTimeout } from "./util/timeout.js";
 import { hydrate } from "./hydrate/hydration.js";
 import { readManifest } from "./hydrate/manifest.js";
 import { createHydrateViews } from "./hydrate/views.js";
+import { listInsights } from "./insights/insights.js";
+import { Scheduler } from "./scheduler/scheduler.js";
+import { createJobs } from "./scheduler/jobs.js";
 
 const config = loadConfig();
 const registry = createRegistry(config);
@@ -50,6 +54,14 @@ const inngestHandler = serve({
   client: ingest.inngest,
   functions: ingest.functions,
 });
+const scheduler = new Scheduler({
+  stateDir: join(config.workspacesRootAbs, ".scheduler"),
+  tickMs: config.SCHEDULER_TICK_MS,
+  log: (message) => console.log(message),
+});
+for (const job of createJobs({ config, warehouse, workspaces })) {
+  scheduler.register(job);
+}
 
 async function main(): Promise<void> {
   if (backup.enabled) {
@@ -112,6 +124,12 @@ async function main(): Promise<void> {
     console.warn("[bridge] failed to subscribe:", err);
   });
 
+  if (config.schedulerEnabled) {
+    void scheduler.start().catch((err) => {
+      console.warn("[scheduler] failed to start:", err);
+    });
+  }
+
   console.log(
     `[runner] registry=${config.registryEnabled ? "on" : "off"} ` +
       `backups=${config.backupsEnabled ? "on" : "off"} ` +
@@ -143,6 +161,25 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (parts[0] === "api" && parts[1] === "inngest") {
     inngestHandler(req, res);
     return;
+  }
+
+  // GET /scheduler  -- job definitions + recent runs
+  if (method === "GET" && parts[0] === "scheduler" && parts.length === 1) {
+    return send(res, 200, {
+      jobs: scheduler.list(),
+      runs: await scheduler.recentRuns(20),
+    });
+  }
+
+  // POST /scheduler/run/:id  -- trigger a job now (operator)
+  if (
+    method === "POST" &&
+    parts[0] === "scheduler" &&
+    parts[1] === "run" &&
+    parts[2]
+  ) {
+    await scheduler.runJob(parts[2]);
+    return send(res, 200, { ok: true, jobs: scheduler.list() });
   }
 
   // GET /health[?deep=1]  -- deep pings PocketBase reachability
@@ -225,6 +262,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       await workspaces.require(workspaceId);
       const paths = workspaces.pathsFor(workspaceId);
       return send(res, 200, await runQuery(config, paths.duckdb, body.sql));
+    }
+
+    // GET /workspaces/:id/insights  -- background-computed headline findings
+    if (method === "GET" && parts[2] === "insights" && parts.length === 3) {
+      await workspaces.require(workspaceId);
+      return send(res, 200, await listInsights({ warehouse }, workspaceId));
     }
 
     // GET|POST /workspaces/:id/hydrate  -- cache a warehouse window for DuckDB

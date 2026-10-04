@@ -291,6 +291,12 @@ work is modelled as durable, multi-step workflows; the bridge consumer forwards
 | `hydration/refresh` | event or on-demand | export window → write Parquet → write manifest → swap DuckDB views |
 | `retention/sweep` | schedule | expire raw / TTL housekeeping |
 
+Periodic work is triggered by a **hand-rolled scheduler**
+(`runner/src/scheduler/`): job definitions live in code, `lastRunAt` is
+persisted in `state.json`, and an append-only `runs.jsonl` records every run.
+Implemented jobs: `warehouse-refresh` (rebuild silver/gold + refresh the DuckDB
+hydration window) and `insights` (recompute `gold_insights`).
+
 Rules:
 - **Concurrency keyed by `workspace_id`** so one workspace cannot stampede.
 - Retries with exponential backoff per step; terminal failures surface, not
@@ -342,7 +348,10 @@ load workflow: `silver_stream_events` (dedupe via `FINAL` + derived
 (`TRUNCATE` + `INSERT ... SELECT`, idempotent; production would make these
 incremental). Bronze schema evolution is **additive**
 (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`); type changes need a migration.
-`gold_insights` holds background-computed results (Phase 5).
+`gold_insights` holds background-computed results (Phase 5). Implemented
+(`runner/src/insights/`): deterministic SQL computes today's total watch time,
+the top channel, and peak-viewer anomalies, exposed at
+`GET /workspaces/:id/insights`.
 
 Physical-layout lessons to exercise: partition pruning, sparse primary index via
 `ORDER BY`, `ReplacingMergeTree` dedupe, part count / merge health, TTL.

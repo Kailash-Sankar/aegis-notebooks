@@ -47,6 +47,13 @@ const EnvSchema = z.object({
   INNGEST_EVENT_KEY: z.string().optional(),
   INNGEST_SIGNING_KEY: z.string().optional(),
 
+  // Hand-rolled scheduler (Phase 3/5). Definitions live in code; run history is
+  // an append-only log under the scheduler state dir (<workspaces>/.scheduler).
+  SCHEDULER_ENABLED: z.string().default("1"),
+  SCHEDULER_TICK_MS: z.coerce.number().default(30_000),
+  SCHEDULER_REFRESH_INTERVAL_MS: z.coerce.number().default(3_600_000),
+  SCHEDULER_INSIGHTS_INTERVAL_MS: z.coerce.number().default(900_000),
+
   // Quotas (ADR 0005)
   QUOTA_TOTAL_BYTES: z.coerce.number().default(10 * 1024 ** 3),
   QUOTA_FILE_BYTES: z.coerce.number().default(1024 ** 3),
@@ -70,6 +77,8 @@ export type Config = z.infer<typeof EnvSchema> & {
   clickhouseEnabled: boolean;
   /** True when Inngest is configured to receive events. */
   inngestEnabled: boolean;
+  /** True when the periodic scheduler should run. */
+  schedulerEnabled: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -86,5 +95,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     brokerEnabled: Boolean(parsed.KAFKA_BROKERS && parsed.KAFKA_BROKERS.trim()),
     clickhouseEnabled: Boolean(parsed.CLICKHOUSE_URL),
     inngestEnabled: Boolean(parsed.INNGEST_BASE_URL || parsed.INNGEST_EVENT_KEY),
+    schedulerEnabled: !["0", "false", "no"].includes(parsed.SCHEDULER_ENABLED.toLowerCase()),
   };
 }

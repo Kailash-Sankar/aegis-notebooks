@@ -15,6 +15,8 @@ export interface Warehouse {
   command(sql: string): Promise<void>;
   /** Run a SELECT and return the result encoded as Parquet bytes. */
   exportParquet(sql: string): Promise<Uint8Array>;
+  /** Run a SELECT and return rows as objects. */
+  queryRows(sql: string): Promise<Array<Record<string, unknown>>>;
   /** Insert rows as `JSONEachRow`. */
   insert(table: string, rows: Array<Record<string, unknown>>): Promise<void>;
   close(): Promise<void>;
@@ -40,6 +42,10 @@ export class MemoryWarehouse implements Warehouse {
   async exportParquet(sql: string): Promise<Uint8Array> {
     this.exports.push(sql);
     return Buffer.from(`parquet:${this.exports.length}`);
+  }
+
+  async queryRows(): Promise<Array<Record<string, unknown>>> {
+    return [];
   }
 
   async insert(
@@ -107,6 +113,11 @@ export class ClickHouseWarehouse implements Warehouse {
       );
     }
     return new Uint8Array(await res.arrayBuffer());
+  }
+
+  async queryRows(sql: string): Promise<Array<Record<string, unknown>>> {
+    const result = await this.client.query({ query: sql, format: "JSONEachRow" });
+    return (await result.json()) as Array<Record<string, unknown>>;
   }
 
   async insert(

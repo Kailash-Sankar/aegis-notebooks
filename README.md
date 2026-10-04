@@ -161,6 +161,9 @@ pnpm build:web
 | POST | `/workspaces/:id/query` | read-only SQL → rows |
 | POST | `/workspaces/:id/sources/:source/pull` | pull + land a source chunk (operator) |
 | GET/POST | `/workspaces/:id/hydrate` | fetch / refresh the DuckDB hydration window |
+| GET | `/workspaces/:id/insights` | background-computed headline findings |
+| GET | `/scheduler` | job definitions + recent runs |
+| POST | `/scheduler/run/:id` | trigger a scheduled job now (operator) |
 | POST | `/workspaces/:id/restore` | rebuild from RustFS |
 | POST | `/workspaces/:id/onboard` | start onboarding (SSE) |
 | POST | `/workspaces/:id/onboard/chat` | continue onboarding chat (SSE) |
