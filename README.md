@@ -74,9 +74,12 @@ pnpm dev:mock        # http://127.0.0.1:8099
 
 Phase 1 is being built per [docs/design/ingestion-platform.md](docs/design/ingestion-platform.md).
 A mocked OLTP source (`mock-source/`) feeds a connector + gateway that land
-immutable raw chunks in RustFS and publish manifests to Redpanda. Redpanda,
-ClickHouse, and Inngest run as compose services; the runner uses an in-process
-broker when `KAFKA_BROKERS` is unset.
+immutable raw chunks in RustFS and publish manifests to Redpanda. An Inngest
+workflow then loads each chunk into the ClickHouse **bronze** table
+(`ReplacingMergeTree`, deduped by contract key). Redpanda, ClickHouse, and
+Inngest run as compose services; the runner falls back to an in-process broker,
+an in-memory warehouse, and inline loading when `KAFKA_BROKERS` /
+`CLICKHOUSE_URL` / `INNGEST_BASE_URL` are unset.
 
 ### Model
 

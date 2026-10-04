@@ -42,6 +42,11 @@ const EnvSchema = z.object({
   CLICKHOUSE_USER: z.string().default("default"),
   CLICKHOUSE_PASSWORD: z.string().default(""),
 
+  // Inngest (control plane). Unset => the chunk bridge loads inline (dev/test).
+  INNGEST_BASE_URL: z.string().optional(),
+  INNGEST_EVENT_KEY: z.string().optional(),
+  INNGEST_SIGNING_KEY: z.string().optional(),
+
   // Quotas (ADR 0005)
   QUOTA_TOTAL_BYTES: z.coerce.number().default(10 * 1024 ** 3),
   QUOTA_FILE_BYTES: z.coerce.number().default(1024 ** 3),
@@ -63,6 +68,8 @@ export type Config = z.infer<typeof EnvSchema> & {
   brokerEnabled: boolean;
   /** True when a ClickHouse URL is configured. */
   clickhouseEnabled: boolean;
+  /** True when Inngest is configured to receive events. */
+  inngestEnabled: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -78,5 +85,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ),
     brokerEnabled: Boolean(parsed.KAFKA_BROKERS && parsed.KAFKA_BROKERS.trim()),
     clickhouseEnabled: Boolean(parsed.CLICKHOUSE_URL),
+    inngestEnabled: Boolean(parsed.INNGEST_BASE_URL || parsed.INNGEST_EVENT_KEY),
   };
 }

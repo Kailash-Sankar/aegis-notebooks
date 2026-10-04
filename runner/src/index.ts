@@ -22,6 +22,10 @@ import { runIngest } from "./ingest/gateway.js";
 import { HttpSourceClient } from "./sources/connector.js";
 import { readContract } from "./sources/contract.js";
 import { readState, writeState } from "./sources/state.js";
+import { serve } from "inngest/node";
+import { createWarehouse } from "./warehouse/client.js";
+import { loadManifest, type LoaderDeps } from "./warehouse/loader.js";
+import { createIngestWorkflows, INGEST_EVENT } from "./workflows/inngest.js";
 
 const config = loadConfig();
 const registry = createRegistry(config);
@@ -32,6 +36,16 @@ const agent = new AgentRunner(config, registry, workspaces);
 const deps: IngestDeps = { workspaces, registry, backup, quota };
 const raw = createRawStore(config);
 const broker = createBroker(config);
+const warehouse = createWarehouse(config);
+const loaderDeps: LoaderDeps = { warehouse, raw, workspaces };
+const ingest = createIngestWorkflows(loaderDeps, {
+  ...(config.INNGEST_BASE_URL ? { baseUrl: config.INNGEST_BASE_URL } : {}),
+  ...(config.INNGEST_EVENT_KEY ? { eventKey: config.INNGEST_EVENT_KEY } : {}),
+});
+const inngestHandler = serve({
+  client: ingest.inngest,
+  functions: ingest.functions,
+});
 
 async function main(): Promise<void> {
   if (backup.enabled) {
@@ -51,13 +65,20 @@ async function main(): Promise<void> {
   await broker.connect().catch((err) => {
     console.warn("[broker] could not connect:", err);
   });
-  // The consumer side of the chunk bridge. Slice 4 replaces the log with an
-  // Inngest event that starts the load workflow.
+  // The consumer side of the chunk bridge. When Inngest is configured the
+  // manifest becomes an event that starts the load workflow; otherwise (dev
+  // without Inngest) we load inline so the pipeline still completes.
   await startChunkBridge(broker, async (manifest) => {
-    console.log(
-      `[bridge] chunk.landed ${manifest.id} ` +
-        `${manifest.source}/${manifest.dataset} ${manifest.rows} rows`,
-    );
+    if (config.inngestEnabled) {
+      try {
+        await ingest.inngest.send({ name: INGEST_EVENT, data: manifest });
+        return;
+      } catch (err) {
+        console.warn("[bridge] inngest send failed; loading inline:", err);
+      }
+    }
+    const loaded = await loadManifest(loaderDeps, manifest);
+    console.log(`[loader] ${loaded.table} +${loaded.rows} rows`);
   }).catch((err) => {
     console.warn("[bridge] failed to subscribe:", err);
   });
@@ -65,8 +86,10 @@ async function main(): Promise<void> {
   console.log(
     `[runner] registry=${config.registryEnabled ? "on" : "off"} ` +
       `backups=${config.backupsEnabled ? "on" : "off"} ` +
-      `broker=${config.brokerEnabled ? "redpanda" : "memory"} ` +
       `raw=${raw.enabled ? "on" : "off"} ` +
+      `broker=${config.brokerEnabled ? "redpanda" : "memory"} ` +
+      `warehouse=${config.clickhouseEnabled ? "clickhouse" : "memory"} ` +
+      `inngest=${config.inngestEnabled ? "on" : "inline"} ` +
       `reconciled=${result.workspaces} ws / ${result.notebooks} nb`,
   );
 
@@ -86,6 +109,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
   const parts = url.pathname.split("/").filter(Boolean);
+
+  // GET|POST|PUT /api/inngest  -- Inngest function registry + invocation.
+  if (parts[0] === "api" && parts[1] === "inngest") {
+    inngestHandler(req, res);
+    return;
+  }
 
   // GET /health[?deep=1]  -- deep pings PocketBase reachability
   if (method === "GET" && parts[0] === "health") {
