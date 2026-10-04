@@ -47,6 +47,10 @@ const EnvSchema = z.object({
   INNGEST_EVENT_KEY: z.string().optional(),
   INNGEST_SIGNING_KEY: z.string().optional(),
 
+  // Observability (OTel). Unset endpoint => telemetry is a no-op.
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  OTEL_SERVICE_NAME: z.string().default("aegis-runner"),
+
   // Hand-rolled scheduler (Phase 3/5). Definitions live in code; run history is
   // an append-only log under the scheduler state dir (<workspaces>/.scheduler).
   SCHEDULER_ENABLED: z.string().default("1"),
@@ -79,6 +83,8 @@ export type Config = z.infer<typeof EnvSchema> & {
   inngestEnabled: boolean;
   /** True when the periodic scheduler should run. */
   schedulerEnabled: boolean;
+  /** True when an OTLP endpoint is configured. */
+  otelEnabled: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -96,5 +102,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     clickhouseEnabled: Boolean(parsed.CLICKHOUSE_URL),
     inngestEnabled: Boolean(parsed.INNGEST_BASE_URL || parsed.INNGEST_EVENT_KEY),
     schedulerEnabled: !["0", "false", "no"].includes(parsed.SCHEDULER_ENABLED.toLowerCase()),
+    otelEnabled: Boolean(parsed.OTEL_EXPORTER_OTLP_ENDPOINT),
   };
 }

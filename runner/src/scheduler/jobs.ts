@@ -6,6 +6,7 @@ import { hydrate } from "../hydrate/hydration.js";
 import { createHydrateViews } from "../hydrate/views.js";
 import { rebuildInsights } from "../insights/insights.js";
 import { readContract } from "../sources/contract.js";
+import { telemetry } from "../telemetry/metrics.js";
 import type { Warehouse } from "../warehouse/client.js";
 import { rebuildTransforms } from "../warehouse/transform.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
@@ -44,6 +45,8 @@ async function warehouseRefresh(deps: JobDeps): Promise<string> {
       await rebuildTransforms(deps.warehouse, deps.warehouse.database, dataset);
       datasets += 1;
     }
+    const age = await freshnessSeconds(deps.warehouse, workspace.id);
+    if (age !== null) telemetry().setFreshness(workspace.id, age);
     const manifest = await hydrate(
       { warehouse: deps.warehouse, paths },
       { days: 90 },
@@ -64,6 +67,24 @@ async function insightsRefresh(deps: JobDeps): Promise<string> {
     );
   }
   return `computed ${count} insight(s) across ${list.length} workspace(s)`;
+}
+
+/** Seconds since the newest silver event for a workspace (null if unknown). */
+async function freshnessSeconds(
+  warehouse: Warehouse,
+  workspaceId: string,
+): Promise<number | null> {
+  try {
+    const rows = await warehouse.queryRows(
+      `SELECT toUnixTimestamp(now()) - toUnixTimestamp(max(started_at)) AS age ` +
+        `FROM ${warehouse.database}.silver_stream_events ` +
+        `WHERE workspace_id = '${workspaceId.replace(/'/g, "")}'`,
+    );
+    const age = Number(rows[0]?.age);
+    return Number.isFinite(age) && age >= 0 ? age : null;
+  } catch {
+    return null;
+  }
 }
 
 export function createJobs(deps: JobDeps): ScheduledJob[] {

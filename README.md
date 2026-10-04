@@ -139,6 +139,27 @@ AEGIS_THINKING=medium
 `AEGIS_MODEL` splits on the first slash. List available models with
 `cd runner && pnpm models`. Use a model that supports **tool calling**.
 
+## Observability
+
+The runner emits OpenTelemetry **metrics** over OTLP; the Collector batches them
+and exposes a Prometheus endpoint. Metrics are the backbone — logs are
+errors-only and traces are sampled — so the pipeline is visible without bloat.
+
+```bash
+docker compose up -d otel-collector
+curl -s localhost:8889/metrics | grep '^aegis_'   # scrape endpoint
+```
+
+Metric families: `aegis.ingest.chunks|rows|dedupe`, `aegis.jobs.runs|duration`,
+`aegis.http.requests|duration`, `aegis.queue.pending`, and
+`aegis.freshness.seconds` (per workspace) — the last is the primary "is the data
+current?" signal. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to turn telemetry on (no-op
+when unset).
+
+**SigNoz:** the Collector is the seam — uncomment the `otlp/signoz` exporter in
+`otel-collector-config.yaml` and run SigNoz to send the same metrics to its UI.
+No app changes are needed.
+
 ## Tests
 
 ```bash

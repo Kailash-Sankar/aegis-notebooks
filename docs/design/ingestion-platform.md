@@ -432,6 +432,12 @@ control files.
 **Principle:** metrics are the backbone, traces show pipeline flow, logs are
 errors-only. Enforced in the OTel Collector, not in the apps.
 
+**Implemented** (`runner/src/telemetry/metrics.ts`, OTel Collector in compose):
+metric families `aegis.ingest.chunks|rows|dedupe`, `aegis.jobs.runs|duration`,
+`aegis.http.requests|duration`, `aegis.queue.pending`, and
+`aegis.freshness.seconds` (per workspace). The collector exposes Prometheus on
+`:8889`; pointing its OTLP exporter at SigNoz is a collector-config change only.
+
 **Stack:** OTel SDK → **OTel Collector** → self-hosted **SigNoz**, sharing the
 warehouse ClickHouse instance in a **separate database**, under its own CH user
 and settings profile (memory/priority caps) so telemetry cannot be starved by,

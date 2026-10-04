@@ -1,6 +1,7 @@
 import type { ChunkManifest } from "../types.js";
 import type { Broker } from "../transport/broker.js";
 import { CONSUMER_GROUPS, TOPICS } from "../transport/topics.js";
+import { telemetry } from "../telemetry/metrics.js";
 
 /**
  * The chunk bridge (design §4.5): publish landed chunk manifests to the broker,
@@ -23,6 +24,7 @@ export async function publishManifest(
     manifest.workspaceId,
     JSON.stringify(manifest),
   );
+  telemetry().incQueuePublished();
 }
 
 /** Subscribe to `ingest.chunks` and invoke `onChunk` per manifest. */
@@ -43,6 +45,7 @@ export async function startChunkBridge(
         return;
       }
       await onChunk(manifest);
+      telemetry().incQueueConsumed();
     },
   );
 }

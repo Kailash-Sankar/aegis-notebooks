@@ -140,6 +140,17 @@ services:
     environment:
       RPK_BROKERS: redpanda:29092
 
+  # OpenTelemetry Collector: OTLP in, Prometheus out (scrape :8889).
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+
   runner:
     build:
       context: .
@@ -157,6 +168,8 @@ services:
         condition: service_started
       redpanda-init:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     # ADR 0003 hardening: the container is the security boundary.
     read_only: true
     tmpfs:
@@ -196,6 +209,8 @@ services:
       INNGEST_BASE_URL: http://inngest:8288
       INNGEST_DEV: "1"
       KAFKAJS_NO_PARTITIONER_WARNING: "1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: aegis-runner
       # Model: set OPENROUTER_API_KEY (and optionally AEGIS_MODEL/AEGIS_THINKING)
       # in a .env next to this file, or export them before `docker compose up`.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

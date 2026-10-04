@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { telemetry } from "../telemetry/metrics.js";
 
 /**
  * A minimal hand-rolled scheduler (design §4.6/§7): job definitions live in
@@ -104,12 +105,14 @@ export class Scheduler {
       detail = err instanceof Error ? err.message : String(err);
     } finally {
       this.running.delete(id);
-      this.lastRun.set(id, this.now());
+      const finishedAt = this.now();
+      this.lastRun.set(id, finishedAt);
+      telemetry().recordJob(id, status, finishedAt - startedAt);
       await this.saveState();
       await this.appendRun({
         job: id,
         startedAt: new Date(startedAt).toISOString(),
-        finishedAt: new Date(this.now()).toISOString(),
+        finishedAt: new Date(finishedAt).toISOString(),
         status,
         detail,
       });

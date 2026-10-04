@@ -34,6 +34,7 @@ import { createHydrateViews } from "./hydrate/views.js";
 import { listInsights } from "./insights/insights.js";
 import { Scheduler } from "./scheduler/scheduler.js";
 import { createJobs } from "./scheduler/jobs.js";
+import { initTelemetry, telemetry } from "./telemetry/metrics.js";
 
 const config = loadConfig();
 const registry = createRegistry(config);
@@ -62,6 +63,7 @@ const scheduler = new Scheduler({
 for (const job of createJobs({ config, warehouse, workspaces })) {
   scheduler.register(job);
 }
+initTelemetry(config);
 
 async function main(): Promise<void> {
   if (backup.enabled) {
@@ -141,10 +143,21 @@ async function main(): Promise<void> {
   );
 
   const server = createServer((req, res) => {
-    handle(req, res).catch((err) => {
-      const status = err instanceof QuotaError ? 413 : 400;
-      send(res, status, { error: err instanceof Error ? err.message : String(err) });
-    });
+    const startedAt = Date.now();
+    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    handle(req, res)
+      .catch((err) => {
+        const status = err instanceof QuotaError ? 413 : 400;
+        send(res, status, { error: err instanceof Error ? err.message : String(err) });
+      })
+      .finally(() => {
+        telemetry().recordHttp(
+          req.method ?? "GET",
+          path,
+          res.statusCode,
+          Date.now() - startedAt,
+        );
+      });
   });
 
   server.listen(config.PORT, () => {
@@ -323,6 +336,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         state,
         onManifest: async (manifest, deduped) => {
           landed.push({ id: manifest.id, deduped });
+          telemetry().recordChunk(manifest.rows, deduped);
           await publishManifest(broker, manifest);
         },
       });
