@@ -268,7 +268,10 @@ RustFS.
 - **Partition key = `workspace_id`** → per-workspace ordering; consumers scale
   up to the partition count.
 - **Consumer group** `loader`; offsets committed **after** the ClickHouse insert
-  succeeds → at-least-once → loader must be idempotent.
+  succeeds → at-least-once → loader must be idempotent. The bridge reads
+  `fromBeginning: true` because the group join can take tens of seconds and any
+  manifest produced in that window would otherwise be skipped; idempotent
+  loading makes reprocessing on restart safe.
 - **Replay**: rewind `ingest.chunks` offsets to reprocess; RustFS raw remains the
   system of record, the broker is a bounded replay buffer.
 
@@ -332,9 +335,14 @@ ORDER BY (tenant_id, workspace_id, channel_id);
 - Queries must filter on `tenant_id`/`workspace_id` (enforced by a query builder
   / views as defence in depth).
 
-**Silver / gold:** normalised / modelled tables and derived aggregates
-(`MergeTree` or `AggregatingMergeTree` + materialized views), same leading keys.
-`gold_insights` holds background-computed results.
+**Silver / gold:** normalised / modelled tables and derived aggregates, same
+leading keys. Implemented (Phase 2) as **plain-SQL full rebuilds** run by the
+load workflow: `silver_stream_events` (dedupe via `FINAL` + derived
+`duration_minutes`), `gold_stream_daily`, and `gold_channel_totals`
+(`TRUNCATE` + `INSERT ... SELECT`, idempotent; production would make these
+incremental). Bronze schema evolution is **additive**
+(`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`); type changes need a migration.
+`gold_insights` holds background-computed results (Phase 5).
 
 Physical-layout lessons to exercise: partition pruning, sparse primary index via
 `ORDER BY`, `ReplacingMergeTree` dedupe, part count / merge health, TTL.

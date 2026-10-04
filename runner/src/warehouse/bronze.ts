@@ -7,8 +7,10 @@ import type { SourceContract } from "../sources/contract.js";
  */
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-// e.g. UInt64, LowCardinality(String), DateTime64(3, 'UTC'), Nullable(Int64)
-const TYPE_RE = /^[A-Za-z_][A-Za-z0-9_]*(\([A-Za-z0-9_, ']+\))?$/;
+// e.g. UInt64, LowCardinality(String), DateTime64(3, 'UTC'),
+// Nullable(DateTime64(3, 'UTC')). Allows nested parentheses, but deliberately
+// excludes `;`, `-`, `.`, `=` and newlines so a contract cannot inject SQL.
+const TYPE_RE = /^[A-Za-z_][A-Za-z0-9_]*[A-Za-z0-9_,()' ]*$/;
 
 export function assertIdentifier(name: string): string {
   if (!IDENT_RE.test(name)) throw new Error(`unsafe identifier: ${name}`);
@@ -79,5 +81,24 @@ export function bronzeDdl(database: string, contract: SourceContract): string {
     `ENGINE = ${engine} ` +
     `PARTITION BY ${partition} ` +
     `ORDER BY (${orderBy})`
+  );
+}
+
+/**
+ * Additive schema evolution: `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for
+ * every contract column. Runs on each load so a new column in the contract
+ * (source drift) is materialised without a manual migration. Type changes and
+ * removals still require a deliberate migration.
+ */
+export function bronzeAddColumnStatements(
+  database: string,
+  contract: SourceContract,
+): string[] {
+  const db = assertIdentifier(database);
+  const table = bronzeTableName(contract);
+  return Object.entries(contract.columns).map(
+    ([name, col]) =>
+      `ALTER TABLE ${db}.${table} ADD COLUMN IF NOT EXISTS ` +
+      `${assertIdentifier(name)} ${assertColumnType(col.type)}`,
   );
 }

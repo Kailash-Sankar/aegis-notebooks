@@ -87,7 +87,7 @@ services:
     # any events are sent.
     depends_on:
       runner:
-        condition: service_started
+        condition: service_healthy
     command: ["inngest", "dev", "-u", "http://runner:8787/api/inngest"]
     ports:
       - "8288:8288"
@@ -164,6 +164,14 @@ services:
     pids_limit: 512
     mem_limit: 2g
     cpus: 2
+    # Inngest's dev server syncs the function registry once at startup; it must
+    # see a ready runner, so gate it on this healthcheck.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8787/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     environment:
       # HOME on tmpfs so Pi's runtime writes stay ephemeral and off the
       # read-only root filesystem (we use in-memory sessions).

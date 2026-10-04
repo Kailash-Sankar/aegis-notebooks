@@ -2,6 +2,7 @@ import { Inngest } from "inngest";
 import type { ChunkManifest } from "../types.js";
 import type { LoaderDeps } from "../warehouse/loader.js";
 import { loadManifest } from "../warehouse/loader.js";
+import { rebuildTransforms } from "../warehouse/transform.js";
 
 /**
  * Inngest workflows: the control plane (design §4.6). The first function loads
@@ -35,13 +36,23 @@ export function createIngestWorkflows(
     { event: INGEST_EVENT },
     async ({ event, step }) => {
       const manifest = event.data as unknown as ChunkManifest;
-      return step.run("load-bronze", async () => {
-        const result = await loadManifest(deps, manifest);
-        console.log(
-          `[workflow] ingest-chunk-load ${result.table} +${result.rows} rows`,
-        );
-        return result;
-      });
+      const loaded = await step.run("load-bronze", () =>
+        loadManifest(deps, manifest),
+      );
+      // Silver/gold are a full, idempotent rebuild per run (small data); a
+      // production system would debounce or schedule this instead.
+      const transformed = await step.run("transform-silver-gold", () =>
+        rebuildTransforms(
+          deps.warehouse,
+          deps.warehouse.database,
+          manifest.dataset,
+        ),
+      );
+      console.log(
+        `[workflow] ${manifest.dataset} ${loaded.table} +${loaded.rows} rows ` +
+          `-> ${transformed.tables.join(", ") || "(no transforms)"}`,
+      );
+      return { loaded, transformed };
     },
   );
 

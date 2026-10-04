@@ -24,8 +24,9 @@ import { readContract } from "./sources/contract.js";
 import { readState, writeState } from "./sources/state.js";
 import { serve } from "inngest/node";
 import { createWarehouse } from "./warehouse/client.js";
-import { loadManifest, type LoaderDeps } from "./warehouse/loader.js";
+import { processManifest, type LoaderDeps } from "./warehouse/loader.js";
 import { createIngestWorkflows, INGEST_EVENT } from "./workflows/inngest.js";
+import { withTimeout } from "./util/timeout.js";
 
 const config = loadConfig();
 const registry = createRegistry(config);
@@ -74,14 +75,36 @@ async function main(): Promise<void> {
   void startChunkBridge(broker, async (manifest) => {
     if (config.inngestEnabled) {
       try {
-        await ingest.inngest.send({ name: INGEST_EVENT, data: manifest });
+        // The Inngest SDK's send can hang (e.g. a busy dev server) and would
+        // otherwise stall the Kafka consumer. Bound it and fall back to inline
+        // processing; loading is idempotent, so a late duplicate is harmless.
+        await withTimeout(
+          ingest.inngest.send({ name: INGEST_EVENT, data: manifest }),
+          4000,
+          "inngest.send",
+        );
         return;
       } catch (err) {
-        console.warn("[bridge] inngest send failed; loading inline:", err);
+        console.warn(
+          "[bridge] inngest send failed/slow; loading inline:",
+          err instanceof Error ? err.message : err,
+        );
       }
     }
-    const loaded = await loadManifest(loaderDeps, manifest);
-    console.log(`[loader] ${loaded.table} +${loaded.rows} rows`);
+    // Never let one bad manifest stall the Kafka consumer. Terminal failures
+    // (missing/drifted contract) are logged; DLQ routing is a later slice.
+    try {
+      const result = await processManifest(loaderDeps, manifest);
+      console.log(
+        `[loader] ${result.loaded.table} +${result.loaded.rows} rows -> ` +
+          `${result.tables.join(", ") || "(no transforms)"}`,
+      );
+    } catch (err) {
+      console.warn(
+        `[bridge] load failed for ${manifest.source}/${manifest.dataset}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }).catch((err) => {
     console.warn("[bridge] failed to subscribe:", err);
   });

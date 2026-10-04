@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertColumnType, assertIdentifier, bronzeDdl, bronzeTableName } from "./bronze.js";
+import {
+  assertColumnType,
+  assertIdentifier,
+  bronzeAddColumnStatements,
+  bronzeDdl,
+  bronzeTableName,
+} from "./bronze.js";
 import type { SourceContract } from "../sources/contract.js";
 
 const contract: SourceContract = {
@@ -50,6 +56,31 @@ test("append contracts use MergeTree and fall back to ingest-time partitioning",
   const ddl = bronzeDdl("aegis", append);
   assert.match(ddl, /ENGINE = MergeTree\(\)/);
   assert.match(ddl, /PARTITION BY toYYYYMM\(_ingested_at\)/);
+});
+
+test("emits additive ALTER statements for schema evolution", () => {
+  const stmts = bronzeAddColumnStatements("aegis", contract);
+  assert.ok(
+    stmts.some((s) =>
+      s.startsWith(
+        "ALTER TABLE aegis.bronze_streamers ADD COLUMN IF NOT EXISTS channel_id UInt64",
+      ),
+    ),
+  );
+  assert.equal(stmts.length, Object.keys(contract.columns).length);
+});
+
+test("accepts parameterized and nested column types", () => {
+  for (const t of [
+    "UInt64",
+    "LowCardinality(String)",
+    "DateTime64(3, 'UTC')",
+    "Nullable(DateTime64(3, 'UTC'))",
+    "Decimal(18, 4)",
+  ]) {
+    assert.equal(assertColumnType(t), t);
+  }
+  assert.throws(() => assertColumnType("Int64 -- comment"), /unsafe column type/);
 });
 
 test("rejects unsafe identifiers and column types (no SQL injection)", () => {

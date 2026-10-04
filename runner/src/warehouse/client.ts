@@ -11,6 +11,8 @@ export interface Warehouse {
   readonly database: string;
   /** Run a DDL/command statement (idempotent; uses IF NOT EXISTS). */
   ensureTable(createSql: string): Promise<void>;
+  /** Run an arbitrary DDL/DML statement (used by transforms). */
+  command(sql: string): Promise<void>;
   /** Insert rows as `JSONEachRow`. */
   insert(table: string, rows: Array<Record<string, unknown>>): Promise<void>;
   close(): Promise<void>;
@@ -22,8 +24,14 @@ export class MemoryWarehouse implements Warehouse {
   readonly ddl: string[] = [];
   private readonly tables = new Map<string, Array<Record<string, unknown>>>();
 
+  readonly commands: string[] = [];
+
   async ensureTable(createSql: string): Promise<void> {
     this.ddl.push(createSql);
+  }
+
+  async command(sql: string): Promise<void> {
+    this.commands.push(sql);
   }
 
   async insert(
@@ -58,7 +66,11 @@ export class ClickHouseWarehouse implements Warehouse {
   }
 
   async ensureTable(createSql: string): Promise<void> {
-    await this.client.command({ query: createSql });
+    await this.command(createSql);
+  }
+
+  async command(sql: string): Promise<void> {
+    await this.client.command({ query: sql });
   }
 
   async insert(

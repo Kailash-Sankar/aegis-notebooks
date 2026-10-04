@@ -4,7 +4,8 @@ import type { SourceContract } from "../sources/contract.js";
 import { readContract, schemaFingerprint } from "../sources/contract.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
 import type { Warehouse } from "./client.js";
-import { bronzeDdl, bronzeTableName } from "./bronze.js";
+import { bronzeAddColumnStatements, bronzeDdl, bronzeTableName } from "./bronze.js";
+import { rebuildTransforms } from "./transform.js";
 
 /**
  * The loader (design §4.7): apply a contract to one landed chunk and write it
@@ -102,6 +103,9 @@ export async function loadChunk(
   await deps.warehouse.ensureTable(
     bronzeDdl(deps.warehouse.database, contract),
   );
+  for (const sql of bronzeAddColumnStatements(deps.warehouse.database, contract)) {
+    await deps.warehouse.command(sql);
+  }
   const table = `${deps.warehouse.database}.${bronzeTableName(contract)}`;
   await deps.warehouse.insert(table, projected);
   return { table, rows: projected.length };
@@ -132,4 +136,23 @@ export async function loadManifest(
     contract,
     manifest,
   );
+}
+
+export interface ProcessResult {
+  loaded: LoadResult;
+  tables: string[];
+}
+
+/** Load a manifest into bronze, then rebuild silver/gold for its dataset. */
+export async function processManifest(
+  deps: LoaderDeps,
+  manifest: ChunkManifest,
+): Promise<ProcessResult> {
+  const loaded = await loadManifest(deps, manifest);
+  const { tables } = await rebuildTransforms(
+    deps.warehouse,
+    deps.warehouse.database,
+    manifest.dataset,
+  );
+  return { loaded, tables };
 }

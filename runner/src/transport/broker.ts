@@ -105,8 +105,15 @@ export class KafkaBroker implements Broker {
     const consumer = this.kafka.consumer({ groupId });
     this.consumers.push(consumer);
     await consumer.connect();
-    await consumer.subscribe({ topic, fromBeginning: false });
+    // Read from the beginning: the group join can take tens of seconds, and
+    // with `fromBeginning: false` any message produced before the first
+    // assignment would be skipped. Loading is idempotent (content-addressed
+    // raw + engine dedupe), so reprocessing on restart is safe.
+    await consumer.subscribe({ topic, fromBeginning: true });
     await consumer.run({
+      // Process several partitions at once so one slow/stuck partition cannot
+      // block the others (default is 1).
+      partitionsConsumedConcurrently: 6,
       // kafkajs auto-commits after eachMessage resolves; a throw retries and,
       // after exhaustion, surfaces so the caller can route to the DLQ.
       eachMessage: async ({ message }) => {
