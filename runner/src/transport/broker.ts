@@ -68,6 +68,7 @@ export class KafkaBroker implements Broker {
   readonly enabled = true;
   private readonly kafka: Kafka;
   private producer: Producer | null = null;
+  private connecting: Promise<void> | null = null;
   private readonly consumers: Consumer[] = [];
 
   constructor(brokers: string[], clientId: string) {
@@ -75,10 +76,20 @@ export class KafkaBroker implements Broker {
   }
 
   async connect(): Promise<void> {
-    if (!this.producer) {
-      this.producer = this.kafka.producer();
-      await this.producer.connect();
+    if (this.producer) return;
+    // Memoize the in-flight connection so concurrent callers share one attempt.
+    if (!this.connecting) {
+      const producer = this.kafka.producer();
+      this.connecting = producer
+        .connect()
+        .then(() => {
+          this.producer = producer;
+        })
+        .finally(() => {
+          this.connecting = null;
+        });
     }
+    return this.connecting;
   }
 
   async publish(topic: string, key: string, value: string): Promise<void> {

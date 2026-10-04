@@ -39,6 +39,7 @@ WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY runner/package.json ./runner/
 COPY web/package.json ./web/
+COPY mock-source/package.json ./mock-source/
 RUN pnpm install --filter @aegis/runner --frozen-lockfile
 
 COPY runner/ ./runner/

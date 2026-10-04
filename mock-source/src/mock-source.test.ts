@@ -106,3 +106,25 @@ test("generator adds a column on schema drift", () => {
   assert.ok(cols.includes("game"));
   db.close();
 });
+
+test("generator ids stay unique across restarts (same seed)", () => {
+  const db = freshDb();
+  const first = startGenerator(db, { seed: 1 });
+  const ids = new Set<string>();
+  for (let i = 0; i < 5; i += 1) {
+    const r = first.tick();
+    if (r.insertedEvent) ids.add(r.insertedEvent);
+  }
+  first.stop();
+  // A restarted generator with the same seed must not collide with persisted
+  // rows (event ids are random, not derived from the seeded RNG).
+  const second = startGenerator(db, { seed: 1 });
+  for (let i = 0; i < 5; i += 1) {
+    const r = second.tick();
+    assert.ok(r.insertedEvent);
+    ids.add(r.insertedEvent);
+  }
+  second.stop();
+  assert.equal(ids.size, 10);
+  db.close();
+});

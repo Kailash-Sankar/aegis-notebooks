@@ -24,10 +24,12 @@ async function main(): Promise<void> {
       })
     : null;
 
+  const host = process.env.MOCK_HOST ?? "127.0.0.1";
   const { url } = await listen(
     db,
     { faultRate: Number(process.env.MOCK_FAULT_RATE ?? 0) },
     port,
+    host,
   );
 
   console.log(`[mock-source] db=${dbPath} generate=${generate}`);

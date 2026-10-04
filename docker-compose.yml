@@ -83,19 +83,80 @@ services:
   # /api/inngest (Phase 1, slice 4).
   inngest:
     image: inngest/inngest:latest
+    # Sync after the runner is up so the function registry is registered before
+    # any events are sent.
+    depends_on:
+      runner:
+        condition: service_started
     command: ["inngest", "dev", "-u", "http://runner:8787/api/inngest"]
     ports:
       - "8288:8288"
+
+  # Mocked OLTP source: the external system the ingestion pipeline pulls from
+  # (dev/simulation only).
+  mock-source:
+    build:
+      context: .
+      dockerfile: mock-source/Dockerfile
+    environment:
+      MOCK_PORT: "8099"
+      # Bind all interfaces so the runner (another container) can reach it.
+      MOCK_HOST: 0.0.0.0
+      MOCK_DB: /data/mock.db
+      MOCK_GENERATE: "1"
+      MOCK_INTERVAL_MS: "1500"
+      MOCK_LATE_PERCENT: "0.15"
+      # Adds a column after N ticks to exercise schema drift / re-onboarding.
+      MOCK_DRIFT_AFTER_TICKS: "0"
+    volumes:
+      - mock_data:/data
+    ports:
+      - "8099:8099"
+
+  # Create the ingestion topics with the partition counts from the design
+  # (keyed by workspace_id: ordering per workspace, parallelism up to N).
+  # Idempotent: creates missing topics, and tops up partitions if short.
+  redpanda-init:
+    image: redpandadata/redpanda:latest
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        add_topic() {
+          t="$$1"; want="$$2";
+          have=$$(rpk topic list 2>/dev/null | awk -v t="$$t" '$$1==t {print $$2}');
+          if [ -z "$$have" ] || [ "$$have" = "0" ]; then
+            rpk topic create "$$t" -p "$$want" -r 1;
+          elif [ "$$have" -lt "$$want" ]; then
+            rpk topic add-partitions "$$t" -n $$((want - have));
+          fi
+        }
+        add_topic ingest.chunks 6
+        add_topic ingest.dlq 3
+        add_topic warehouse.events 6
+        rpk topic list
+    environment:
+      RPK_BROKERS: redpanda:29092
 
   runner:
     build:
       context: .
       dockerfile: runner/Dockerfile
     depends_on:
-      - pocketbase
-      - rustfs
-      - redpanda
-      - clickhouse
+      pocketbase:
+        condition: service_started
+      rustfs:
+        condition: service_started
+      redpanda:
+        condition: service_started
+      clickhouse:
+        condition: service_started
+      mock-source:
+        condition: service_started
+      redpanda-init:
+        condition: service_completed_successfully
     # ADR 0003 hardening: the container is the security boundary.
     read_only: true
     tmpfs:
@@ -125,6 +186,8 @@ services:
       CLICKHOUSE_USER: aegis
       CLICKHOUSE_PASSWORD: aegis-dev-password
       INNGEST_BASE_URL: http://inngest:8288
+      INNGEST_DEV: "1"
+      KAFKAJS_NO_PARTITIONER_WARNING: "1"
       # Model: set OPENROUTER_API_KEY (and optionally AEGIS_MODEL/AEGIS_THINKING)
       # in a .env next to this file, or export them before `docker compose up`.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -141,3 +204,4 @@ volumes:
   rustfs_data:
   redpanda_data:
   clickhouse_data:
+  mock_data:

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
 export interface GeneratorOptions {
@@ -105,7 +106,9 @@ export function startGenerator(
       ? nowMs - Math.floor((5 + rnd() * 115) * MINUTE)
       : nowMs;
     const endedMs = rnd() < 0.7 ? startedMs + Math.floor(rnd() * 60 * MINUTE) : null;
-    const eventId = `evt_${ticks}_${Math.floor(rnd() * 1e9).toString(36)}`;
+    // Unique across restarts: the RNG is seeded for reproducibility, so a
+    // seeded suffix could collide with rows already persisted in the volume.
+    const eventId = `evt_${randomUUID()}`;
 
     db.prepare(
       "INSERT INTO stream_events " +
@@ -135,7 +138,14 @@ export function startGenerator(
     };
   }
 
-  const timer = setInterval(tick, intervalMs);
+  const timer = setInterval(() => {
+    try {
+      tick();
+    } catch (err) {
+      // Never let one bad mutation kill the source process.
+      console.error("[mock-source] generator tick failed:", err);
+    }
+  }, intervalMs);
   // Do not keep the process alive solely for the generator.
   if (typeof timer.unref === "function") timer.unref();
 

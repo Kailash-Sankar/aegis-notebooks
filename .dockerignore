@@ -1,0 +1,22 @@
+# Keep build contexts small and reproducible.
+node_modules
+**/node_modules
+
+.git
+.gitignore
+
+dist
+**/dist
+*.tsbuildinfo
+
+# Local working set / generated data — never bake into images.
+workspaces
+mock-source/data
+
+*.log
+.DS_Store
+
+# Secrets
+.env
+.env.*
+!.env.example

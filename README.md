@@ -81,6 +81,52 @@ Inngest run as compose services; the runner falls back to an in-process broker,
 an in-memory warehouse, and inline loading when `KAFKA_BROKERS` /
 `CLICKHOUSE_URL` / `INNGEST_BASE_URL` are unset.
 
+#### End-to-end run (compose)
+
+```bash
+# 1) full stack: registry, raw lake, transport, warehouse, control plane, source
+docker compose up -d --build rustfs redpanda clickhouse inngest mock-source runner
+
+# 2) create a workspace
+WS=$(curl -s -X POST localhost:8787/workspaces \
+  -H 'content-type: application/json' -d '{"name":"demo"}' | jq -r .id)
+
+# 3) give it a source contract (the mock source is reachable as mock-source:8099)
+mkdir -p "workspaces/$WS/sources/twitch-mock"
+cat > "workspaces/$WS/sources/twitch-mock/contract.json" <<JSON
+{
+  "version": 1,
+  "source": "twitch-mock",
+  "dataset": "stream_events",
+  "baseUrl": "http://mock-source:8099",
+  "sync": { "mode": "incremental", "endpoint": "/v1/stream_events",
+            "cursorField": "updated_at", "cursorParam": "updated_since", "pageSize": 500 },
+  "load": { "target": "clickhouse", "layer": "bronze", "mode": "upsert",
+            "dedupe": "latest_by_key", "key": ["event_id"] },
+  "columns": {
+    "event_id": { "type": "String" },
+    "channel_id": { "type": "UInt64" },
+    "updated_at": { "type": "DateTime64(3, 'UTC')", "eventTime": true }
+  },
+  "quality": { "notNull": ["event_id"] }
+}
+JSON
+
+# 4) pull: connector -> raw (RustFS) -> Redpanda -> Inngest -> ClickHouse bronze
+curl -X POST "localhost:8787/workspaces/$WS/sources/twitch-mock/pull"
+
+# 5) verify
+curl -s 'http://localhost:8123/?query=SELECT%20count()%20FROM%20aegis.bronze_stream_events' \
+  --user aegis:aegis-dev-password
+```
+
+Notes: `redpanda-init` creates `ingest.chunks` (6 partitions, keyed by
+`workspace_id`), `ingest.dlq`, and `warehouse.events`. The Inngest dev UI is at
+<http://localhost:8288>; wait for `apps synced` in `docker compose logs inngest`
+before the first pull so the workflow is registered. If Inngest is unreachable
+the bridge falls back to loading inline (dev convenience), so ingestion still
+completes.
+
 ### Model
 
 ```bash

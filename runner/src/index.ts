@@ -59,16 +59,19 @@ async function main(): Promise<void> {
     return { workspaces: 0, notebooks: 0 };
   });
 
-  await raw.ensureReady().catch((err) => {
+  // Infra setup is best-effort and must never block the HTTP server from
+  // coming up. The Kafka consumer-group join in particular can take tens of
+  // seconds; the query/health endpoints should not wait on it.
+  void raw.ensureReady().catch((err) => {
     console.warn("[raw] could not ensure bucket (raw landing will fail):", err);
   });
-  await broker.connect().catch((err) => {
+  void broker.connect().catch((err) => {
     console.warn("[broker] could not connect:", err);
   });
   // The consumer side of the chunk bridge. When Inngest is configured the
   // manifest becomes an event that starts the load workflow; otherwise (dev
   // without Inngest) we load inline so the pipeline still completes.
-  await startChunkBridge(broker, async (manifest) => {
+  void startChunkBridge(broker, async (manifest) => {
     if (config.inngestEnabled) {
       try {
         await ingest.inngest.send({ name: INGEST_EVENT, data: manifest });

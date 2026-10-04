@@ -35,7 +35,13 @@ export function createIngestWorkflows(
     { event: INGEST_EVENT },
     async ({ event, step }) => {
       const manifest = event.data as unknown as ChunkManifest;
-      return step.run("load-bronze", () => loadManifest(deps, manifest));
+      return step.run("load-bronze", async () => {
+        const result = await loadManifest(deps, manifest);
+        console.log(
+          `[workflow] ingest-chunk-load ${result.table} +${result.rows} rows`,
+        );
+        return result;
+      });
     },
   );
 

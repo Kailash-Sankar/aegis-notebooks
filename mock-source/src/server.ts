@@ -136,10 +136,11 @@ export function listen(
   db: DatabaseSync,
   options: ServerOptions = {},
   port = 0,
+  host = "127.0.0.1",
 ): Promise<{ server: Server; url: string; port: number }> {
   const server = createMockServer(db, options);
   return new Promise((resolve) => {
-    server.listen(port, "127.0.0.1", () => {
+    server.listen(port, host, () => {
       const addr = server.address();
       const actualPort =
         typeof addr === "object" && addr !== null ? addr.port : port;
