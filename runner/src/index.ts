@@ -14,6 +14,14 @@ import { WorkspaceManager } from "./workspace/manager.js";
 import { runQuery } from "./workspace/query.js";
 import { deleteReport, listReports, readReport } from "./workspace/reports.js";
 import { AgentRunner, type AgentRunResult } from "./agent/session.js";
+import { currentUser } from "./auth/current-user.js";
+import { createRawStore } from "./raw/store.js";
+import { createBroker } from "./transport/broker.js";
+import { publishManifest, startChunkBridge } from "./ingest/bridge.js";
+import { runIngest } from "./ingest/gateway.js";
+import { HttpSourceClient } from "./sources/connector.js";
+import { readContract } from "./sources/contract.js";
+import { readState, writeState } from "./sources/state.js";
 
 const config = loadConfig();
 const registry = createRegistry(config);
@@ -22,6 +30,8 @@ const quota = new QuotaService(config);
 const workspaces = new WorkspaceManager(config, registry);
 const agent = new AgentRunner(config, registry, workspaces);
 const deps: IngestDeps = { workspaces, registry, backup, quota };
+const raw = createRawStore(config);
+const broker = createBroker(config);
 
 async function main(): Promise<void> {
   if (backup.enabled) {
@@ -34,9 +44,29 @@ async function main(): Promise<void> {
     console.warn("[reconcile] failed (continuing with disk authority):", err);
     return { workspaces: 0, notebooks: 0 };
   });
+
+  await raw.ensureReady().catch((err) => {
+    console.warn("[raw] could not ensure bucket (raw landing will fail):", err);
+  });
+  await broker.connect().catch((err) => {
+    console.warn("[broker] could not connect:", err);
+  });
+  // The consumer side of the chunk bridge. Slice 4 replaces the log with an
+  // Inngest event that starts the load workflow.
+  await startChunkBridge(broker, async (manifest) => {
+    console.log(
+      `[bridge] chunk.landed ${manifest.id} ` +
+        `${manifest.source}/${manifest.dataset} ${manifest.rows} rows`,
+    );
+  }).catch((err) => {
+    console.warn("[bridge] failed to subscribe:", err);
+  });
+
   console.log(
     `[runner] registry=${config.registryEnabled ? "on" : "off"} ` +
       `backups=${config.backupsEnabled ? "on" : "off"} ` +
+      `broker=${config.brokerEnabled ? "redpanda" : "memory"} ` +
+      `raw=${raw.enabled ? "on" : "off"} ` +
       `reconciled=${result.workspaces} ws / ${result.notebooks} nb`,
   );
 
@@ -137,6 +167,43 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       await workspaces.require(workspaceId);
       const paths = workspaces.pathsFor(workspaceId);
       return send(res, 200, await runQuery(config, paths.duckdb, body.sql));
+    }
+
+    // POST /workspaces/:id/sources/:source/pull  (operator-only: pull + land)
+    if (
+      method === "POST" &&
+      parts[2] === "sources" &&
+      parts[4] === "pull" &&
+      parts[3]
+    ) {
+      const source = parts[3];
+      await workspaces.require(workspaceId);
+      const paths = workspaces.pathsFor(workspaceId);
+      const contract = await readContract(paths.sourceContract(source));
+      if (!contract) {
+        return send(res, 404, { error: `no contract for source "${source}"` });
+      }
+      const state = await readState(paths.sourceState(source));
+      const landed: Array<{ id: string; deduped: boolean }> = [];
+      const result = await runIngest(raw, {
+        tenantId: currentUser().id,
+        workspaceId,
+        contract,
+        client: new HttpSourceClient(contract.baseUrl),
+        state,
+        onManifest: async (manifest, deduped) => {
+          landed.push({ id: manifest.id, deduped });
+          await publishManifest(broker, manifest);
+        },
+      });
+      await writeState(paths.sourceState(source), result.state);
+      return send(res, 200, {
+        source,
+        chunks: result.chunks,
+        rows: result.rows,
+        watermark: result.state.watermark,
+        landed,
+      });
     }
 
     // POST /workspaces/:id/restore

@@ -31,6 +31,62 @@ services:
     volumes:
       - rustfs_data:/data
 
+  # Redpanda: single-node Kafka API (no ZooKeeper). Transport for ingestion.
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://127.0.0.1:9092
+    ports:
+      - "9092:9092"   # host clients (127.0.0.1:9092)
+      - "9644:9644"   # admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # ClickHouse: the OLAP warehouse (Phase 2+). HTTP on 8123; native is mapped to
+  # 9111 on the host to avoid RustFS's 9000.
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9111:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      CLICKHOUSE_DB: aegis
+      CLICKHOUSE_USER: aegis
+      CLICKHOUSE_PASSWORD: aegis-dev-password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Inngest dev server: the control plane. Inert until the runner serves
+  # /api/inngest (Phase 1, slice 4).
+  inngest:
+    image: inngest/inngest:latest
+    command: ["inngest", "dev", "-u", "http://runner:8787/api/inngest"]
+    ports:
+      - "8288:8288"
+
   runner:
     build:
       context: .
@@ -38,6 +94,8 @@ services:
     depends_on:
       - pocketbase
       - rustfs
+      - redpanda
+      - clickhouse
     # ADR 0003 hardening: the container is the security boundary.
     read_only: true
     tmpfs:
@@ -59,6 +117,13 @@ services:
       RUSTFS_ACCESS_KEY: aegis
       RUSTFS_SECRET_KEY: aegis-dev-secret
       RUSTFS_BUCKET: aegis-backups
+      RUSTFS_RAW_BUCKET: aegis-raw
+      KAFKA_BROKERS: redpanda:29092
+      KAFKA_CLIENT_ID: aegis-runner
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DB: aegis
+      CLICKHOUSE_USER: aegis
+      CLICKHOUSE_PASSWORD: aegis-dev-password
       # Model: set OPENROUTER_API_KEY (and optionally AEGIS_MODEL/AEGIS_THINKING)
       # in a .env next to this file, or export them before `docker compose up`.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -73,3 +138,5 @@ services:
 volumes:
   pb_data:
   rustfs_data:
+  redpanda_data:
+  clickhouse_data:

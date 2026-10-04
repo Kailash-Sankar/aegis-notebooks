@@ -32,6 +32,16 @@ const EnvSchema = z.object({
   // Raw lake authority (ADR 0007). Separate bucket, same RustFS instance.
   RUSTFS_RAW_BUCKET: z.string().default("aegis-raw"),
 
+  // Broker (Redpanda / Kafka API). Unset => in-process MemoryBroker (dev/test).
+  KAFKA_BROKERS: z.string().optional(),
+  KAFKA_CLIENT_ID: z.string().default("aegis-runner"),
+
+  // ClickHouse warehouse (Phase 2+).
+  CLICKHOUSE_URL: z.string().optional(),
+  CLICKHOUSE_DB: z.string().default("aegis"),
+  CLICKHOUSE_USER: z.string().default("default"),
+  CLICKHOUSE_PASSWORD: z.string().default(""),
+
   // Quotas (ADR 0005)
   QUOTA_TOTAL_BYTES: z.coerce.number().default(10 * 1024 ** 3),
   QUOTA_FILE_BYTES: z.coerce.number().default(1024 ** 3),
@@ -49,6 +59,10 @@ export type Config = z.infer<typeof EnvSchema> & {
   backupsEnabled: boolean;
   /** True when PocketBase admin credentials are present. */
   registryEnabled: boolean;
+  /** True when a Kafka/Redpanda broker is configured. */
+  brokerEnabled: boolean;
+  /** True when a ClickHouse URL is configured. */
+  clickhouseEnabled: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -62,5 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     registryEnabled: Boolean(
       parsed.POCKETBASE_ADMIN_EMAIL && parsed.POCKETBASE_ADMIN_PASSWORD,
     ),
+    brokerEnabled: Boolean(parsed.KAFKA_BROKERS && parsed.KAFKA_BROKERS.trim()),
+    clickhouseEnabled: Boolean(parsed.CLICKHOUSE_URL),
   };
 }

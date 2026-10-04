@@ -51,8 +51,8 @@ Requires Node 22+, pnpm, Docker, and the DuckDB CLI.
 ```bash
 pnpm install
 
-# 1) registry + recovery set
-docker compose up -d pocketbase rustfs
+# 1) infra: registry + recovery set + transport (Redpanda) + warehouse (CH)
+docker compose up -d pocketbase rustfs redpanda clickhouse
 docker compose exec pocketbase /usr/local/bin/pocketbase superuser upsert \
   admin@aegis.local aegis-dev-password --dir=/pb/pb_data
 
@@ -62,10 +62,21 @@ cd runner && cp .env.example .env       # set OPENROUTER_API_KEY (or other provi
 # 3) run
 pnpm dev:runner      # http://127.0.0.1:8787
 pnpm dev:web         # http://127.0.0.1:5173
+
+# 4) optional: the mocked OLTP source for the ingestion pipeline
+pnpm dev:mock        # http://127.0.0.1:8099
 ```
 
 `docker compose up --build` runs the runner in a hardened container too
 (read-only rootfs, `HOME=/tmp`, resource limits; mounts only `workspaces/`).
+
+### Ingestion pipeline (in progress)
+
+Phase 1 is being built per [docs/design/ingestion-platform.md](docs/design/ingestion-platform.md).
+A mocked OLTP source (`mock-source/`) feeds a connector + gateway that land
+immutable raw chunks in RustFS and publish manifests to Redpanda. Redpanda,
+ClickHouse, and Inngest run as compose services; the runner uses an in-process
+broker when `KAFKA_BROKERS` is unset.
 
 ### Model
 
@@ -83,7 +94,7 @@ AEGIS_THINKING=medium
 
 ```bash
 pnpm typecheck
-pnpm test        # runner units (ids, quotas, mappers, restore, tools, context)
+pnpm test        # runner + mock-source units
 pnpm build:web
 ```
 
@@ -99,6 +110,7 @@ pnpm build:web
 | GET | `/workspaces/:id/context` | onboarding status + context + notes + suggestions |
 | PUT | `/workspaces/:id/notes` | save user notes |
 | POST | `/workspaces/:id/query` | read-only SQL → rows |
+| POST | `/workspaces/:id/sources/:source/pull` | pull + land a source chunk (operator) |
 | POST | `/workspaces/:id/restore` | rebuild from RustFS |
 | POST | `/workspaces/:id/onboard` | start onboarding (SSE) |
 | POST | `/workspaces/:id/onboard/chat` | continue onboarding chat (SSE) |
