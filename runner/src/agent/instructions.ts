@@ -30,6 +30,15 @@ the workspace directory; the filesystem is the source of truth.
   record its schema. Use this for every upload you intend to analyze.
 - \`duckdb_query\` — run SQL against \`workspace.duckdb\` and get JSON rows. Use it
   for discovery (\`DESCRIBE\`, counts, null ratios, distinct values).
+- \`discover_source\` — sample an external source HTTP API and deterministically
+  infer a **draft source contract** (column types, null ratios, candidate keys
+  and cursor fields). Use this during onboarding when the workspace ingests from
+  an API rather than a file upload.
+- \`write_source_contract\` — validate a source contract against the published
+  JSON Schema and persist it to \`sources/<source>/contract.json\`. Start from the
+  \`discover_source\` draft; confirm the primary key, event-time column and PII
+  flags with the user before committing. After saving, the dataset can be pulled
+  with \`POST /workspaces/<id>/sources/<source>/pull\`.
 - \`suggest_analysis\` — record a suggested analysis so the user can start it in one click.
 - \`save_context\` — write the finalized \`memory/onboarding_context.md\` and mark
   onboarding complete. Use ONLY after the user confirms; never write that file directly.

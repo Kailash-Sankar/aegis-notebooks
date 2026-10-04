@@ -23,6 +23,8 @@ import { runIngest } from "./ingest/gateway.js";
 import { HttpSourceClient } from "./sources/connector.js";
 import { readContract } from "./sources/contract.js";
 import { readState, writeState } from "./sources/state.js";
+import { discover } from "./sources/discover.js";
+import { diffColumns } from "./sources/drift.js";
 import { serve } from "inngest/node";
 import { createWarehouse } from "./warehouse/client.js";
 import { processManifest, type LoaderDeps } from "./warehouse/loader.js";
@@ -283,6 +285,43 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return send(res, 200, await listInsights({ warehouse }, workspaceId));
     }
 
+    // GET /workspaces/:id/sources/:source/check  -- detect contract drift
+    if (
+      method === "GET" &&
+      parts[2] === "sources" &&
+      parts[4] === "check" &&
+      parts[3]
+    ) {
+      const source = parts[3];
+      await workspaces.require(workspaceId);
+      const paths = workspaces.pathsFor(workspaceId);
+      const contract = await readContract(paths.sourceContract(source));
+      if (!contract) {
+        return send(res, 404, { error: `no contract for source "${source}"` });
+      }
+      const page = await new HttpSourceClient(contract.baseUrl).fetchPage({
+        endpoint: contract.sync.endpoint,
+        cursor: null,
+        limit: contract.sync.pageSize,
+      });
+      const discovery = discover({
+        source: contract.source,
+        dataset: contract.dataset,
+        baseUrl: contract.baseUrl,
+        endpoint: contract.sync.endpoint,
+        pageSize: contract.sync.pageSize,
+        rows: page.data,
+      });
+      const diff = diffColumns(contract, discovery.columns);
+      return send(res, 200, {
+        drift: diff.drifted ? diff : null,
+        candidateKeys: discovery.candidateKeys,
+        candidateCursorFields: discovery.candidateCursorFields,
+        warnings: discovery.warnings,
+        discovered: discovery.columns.map((c) => ({ name: c.name, type: c.type })),
+      });
+    }
+
     // GET|POST /workspaces/:id/hydrate  -- cache a warehouse window for DuckDB
     if (parts[2] === "hydrate" && parts.length === 3) {
       await workspaces.require(workspaceId);
@@ -325,6 +364,25 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const contract = await readContract(paths.sourceContract(source));
       if (!contract) {
         return send(res, 404, { error: `no contract for source "${source}"` });
+      }
+      if (url.searchParams.get("check") === "1") {
+        const page = await new HttpSourceClient(contract.baseUrl).fetchPage({
+          endpoint: contract.sync.endpoint,
+          cursor: null,
+          limit: contract.sync.pageSize,
+        });
+        const discovery = discover({
+          source: contract.source,
+          dataset: contract.dataset,
+          baseUrl: contract.baseUrl,
+          endpoint: contract.sync.endpoint,
+          pageSize: contract.sync.pageSize,
+          rows: page.data,
+        });
+        const diff = diffColumns(contract, discovery.columns);
+        if (diff.drifted) {
+          return send(res, 409, { error: "contract drift detected", drift: diff });
+        }
       }
       const state = await readState(paths.sourceState(source));
       const landed: Array<{ id: string; deduped: boolean }> = [];

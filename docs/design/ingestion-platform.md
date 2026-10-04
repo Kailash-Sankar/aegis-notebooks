@@ -167,7 +167,13 @@ CREATE TABLE stream_events (
 The onboarding agent produces this once per source (and again on drift). It is
 the *only* place that encodes source semantics.
 
-Location on disk (authority): `sources/{source}/contract.json`.
+Location on disk (authority): `sources/{source}/contract.json`. The contract is a
+**published standard**: `runner/src/sources/contract.schema.json` (JSON Schema,
+validated with Ajv). It is **bootstrapped deterministically** by the
+`discover_source` agent tool (types, null ratios, candidate keys/cursor fields)
+and **finalised** by `write_source_contract`; drift is detected by
+`GET /workspaces/:id/sources/:source/check`. See
+[ADR 0009](../adr/0009-source-contracts-as-a-standard.md).
 
 ```json
 {

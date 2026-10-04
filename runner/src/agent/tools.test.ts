@@ -17,6 +17,7 @@ async function makeContext(): Promise<ToolContext> {
     duckdbPath: join(root, "workspace.duckdb"),
     assetsDir: join(root, "memory"),
     reportsDir: join(root, "memory", "reports"),
+    sourcesDir: join(root, "sources"),
     config: loadConfig({}),
     registry: new NullRegistry(),
   };
@@ -50,4 +51,54 @@ test("suggest_analysis records distinct titles", async () => {
     await readFile(join(ctx.workspaceRoot, "memory", "suggested_analyses.json"), "utf8"),
   ) as unknown[];
   assert.equal(parsed.length, 3);
+});
+
+test("write_source_contract validates against the schema and persists", async () => {
+  const ctx = await makeContext();
+  const tool = createAnalyticsTools(ctx).find(
+    (t) => t.name === "write_source_contract",
+  )!;
+  const contract = {
+    version: 1,
+    source: "mock",
+    dataset: "d",
+    baseUrl: "http://x",
+    sync: { mode: "full", endpoint: "/v1/d", pageSize: 10 },
+    load: {
+      target: "clickhouse",
+      layer: "bronze",
+      mode: "append",
+      dedupe: "none",
+      key: ["a"],
+    },
+    columns: { a: { type: "UInt64" } },
+  };
+  await tool.execute(
+    "c1",
+    { contractJson: JSON.stringify(contract) },
+    undefined,
+    undefined,
+    ctx as never,
+  );
+  const saved = JSON.parse(
+    await readFile(join(ctx.sourcesDir, "mock", "contract.json"), "utf8"),
+  ) as { dataset: string };
+  assert.equal(saved.dataset, "d");
+
+  await assert.rejects(
+    () =>
+      tool.execute("c2", { contractJson: "not json" }, undefined, undefined, ctx as never),
+    /not valid JSON/,
+  );
+  await assert.rejects(
+    () =>
+      tool.execute(
+        "c3",
+        { contractJson: JSON.stringify({ ...contract, source: "Bad Name" }) },
+        undefined,
+        undefined,
+        ctx as never,
+      ),
+    /schema validation/,
+  );
 });

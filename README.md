@@ -180,7 +180,8 @@ pnpm build:web
 | GET | `/workspaces/:id/context` | onboarding status + context + notes + suggestions |
 | PUT | `/workspaces/:id/notes` | save user notes |
 | POST | `/workspaces/:id/query` | read-only SQL → rows |
-| POST | `/workspaces/:id/sources/:source/pull` | pull + land a source chunk (operator) |
+| POST | `/workspaces/:id/sources/:source/pull` | pull + land a source chunk (operator; `?check=1` fails on drift) |
+| GET | `/workspaces/:id/sources/:source/check` | detect contract drift against the live source |
 | GET/POST | `/workspaces/:id/hydrate` | fetch / refresh the DuckDB hydration window |
 | GET | `/workspaces/:id/insights` | background-computed headline findings |
 | GET | `/scheduler` | job definitions + recent runs |

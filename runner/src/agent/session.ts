@@ -203,6 +203,7 @@ export class AgentRunner {
       duckdbPath: paths.duckdb,
       assetsDir: nb?.assetsDir ?? paths.memoryDir,
       reportsDir: nb?.reportsDir ?? `${paths.memoryDir}/reports`,
+      sourcesDir: paths.sourcesDir,
       config: this.config,
       registry: this.registry,
       onContextSaved: async () => {
@@ -283,6 +284,8 @@ export class AgentRunner {
           "register_dataset",
           "suggest_analysis",
           "save_context",
+          "discover_source",
+          "write_source_contract",
         ];
 
     const { session } = await createAgentSession({

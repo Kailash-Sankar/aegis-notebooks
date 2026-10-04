@@ -168,3 +168,4 @@ pids/memory/cpu limits.
 - [ADR 0006 — Single-user now, multi-user-ready](adr/0006-single-user-auth-shim.md)
 - [ADR 0007 — RustFS raw is the lake authority](adr/0007-rustfs-raw-lake-authority.md)
 - [ADR 0008 — Claim-check transport](adr/0008-claim-check-transport.md)
+- [ADR 0009 — Source contracts as a published, agent-bootstrapped standard](adr/0009-source-contracts-as-a-standard.md)

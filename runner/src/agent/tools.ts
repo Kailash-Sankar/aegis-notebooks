@@ -6,6 +6,14 @@ import { basename, join } from "node:path";
 import { newId } from "../ids.js";
 import { withDuckdbLock } from "../workspace/ducklock.js";
 import { writeReport } from "../workspace/reports.js";
+import { HttpSourceClient } from "../sources/connector.js";
+import { discover } from "../sources/discover.js";
+import {
+  parseContract,
+  schemaFingerprint,
+  writeContract,
+} from "../sources/contract.js";
+import { validateContractSchema } from "../sources/contract-schema.js";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { Config } from "../config.js";
@@ -22,6 +30,8 @@ export interface ToolContext {
   assetsDir: string;
   /** Notebook reports directory (`reports/`); used by `write_report`. */
   reportsDir: string;
+  /** Workspace sources directory (`sources/`); used by source-contract tools. */
+  sourcesDir: string;
   config: Config;
   registry: RegistryProjection;
   /** Called when the agent commits workspace context (workspace scope only). */
@@ -324,6 +334,111 @@ export function createAnalyticsTools(ctx: ToolContext) {
     },
   });
 
+  const discoverSource = defineTool({
+    name: "discover_source",
+    label: "Discover Source",
+    description:
+      "Sample a source HTTP API and deterministically infer a draft SourceContract " +
+      "(column types, null ratios, candidate primary keys, candidate cursor fields). " +
+      "Call this during onboarding before `write_source_contract`. Returns the draft as JSON.",
+    parameters: Type.Object({
+      source: Type.String({ description: "Source name (lowercase snake_case)." }),
+      dataset: Type.String({ description: "Dataset/table name, e.g. stream_events." }),
+      baseUrl: Type.String({ description: "Base URL of the source API, e.g. http://mock-source:8099." }),
+      endpoint: Type.String({ description: "Request path, e.g. /v1/stream_events." }),
+      limit: Type.Optional(Type.Number({ description: "Sample size (default 200)." })),
+    }),
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      const client = new HttpSourceClient(params.baseUrl);
+      const page = await client.fetchPage({
+        endpoint: params.endpoint,
+        cursor: null,
+        limit: params.limit ?? 200,
+      });
+      if (page.data.length === 0) {
+        throw new Error("source returned no rows to sample");
+      }
+      const result = discover({
+        source: params.source,
+        dataset: params.dataset,
+        baseUrl: params.baseUrl,
+        endpoint: params.endpoint,
+        pageSize: params.limit ?? 200,
+        rows: page.data,
+      });
+      const summary = {
+        rowCount: result.rowCount,
+        candidateKeys: result.candidateKeys,
+        candidateCursorFields: result.candidateCursorFields,
+        warnings: result.warnings,
+        columns: result.columns.map((c) => ({
+          name: c.name,
+          type: c.type,
+          nullRatio: c.nullRatio,
+          unique: c.unique,
+        })),
+        draft: result.draft,
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
+        details: undefined,
+      };
+    },
+  });
+
+  const writeSourceContract = defineTool({
+    name: "write_source_contract",
+    label: "Write Source Contract",
+    description:
+      "Validate and persist a SourceContract (JSON string) to " +
+      "sources/<source>/contract.json. It must pass the published JSON Schema " +
+      "(sources/contract.schema.json). Start from the `discover_source` draft and " +
+      "adjust the key, cursorField/eventTime, and PII flags. Ask the user about ambiguity " +
+      "before committing.",
+    parameters: Type.Object({
+      contractJson: Type.String({
+        description: "The SourceContract serialised as a JSON string.",
+      }),
+    }),
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(params.contractJson);
+      } catch (err) {
+        throw new Error(
+          `contractJson is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const schema = validateContractSchema(raw);
+      if (!schema.valid) {
+        throw new Error(
+          `contract failed schema validation: ${schema.errors.join("; ")}`,
+        );
+      }
+      const contract = parseContract(raw);
+      await writeContract(join(ctx.sourcesDir, contract.source, "contract.json"), contract);
+      const fingerprint = schemaFingerprint(contract);
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `Source contract for "${contract.source}/${contract.dataset}" saved ` +
+              `(${fingerprint}). Pull it with ` +
+              `POST /workspaces/${ctx.workspaceId}/sources/${contract.source}/pull.`,
+          },
+        ],
+        details: {
+          source: contract.source,
+          dataset: contract.dataset,
+          fingerprint,
+        },
+      };
+    },
+  });
+
   return [
     duckdbQuery,
     registerDataset,
@@ -331,6 +446,8 @@ export function createAnalyticsTools(ctx: ToolContext) {
     saveContext,
     writeWidget,
     writeReportTool,
+    discoverSource,
+    writeSourceContract,
   ];
 }
 
