@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import type { Config } from "../config.js";
 import { withDuckdbLock } from "../workspace/ducklock.js";
 import type { WorkspacePaths } from "../workspace/paths.js";
-import { assertIdentifier } from "../warehouse/bronze.js";
+import { assertIdentifier } from "../warehouse/ingested.js";
 import type { HydrationManifest } from "./manifest.js";
 
 const execFileAsync = promisify(execFile);

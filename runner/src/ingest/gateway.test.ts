@@ -23,7 +23,7 @@ const contract: SourceContract = {
   },
   load: {
     target: "clickhouse",
-    layer: "bronze",
+    layer: "ingested",
     mode: "upsert",
     dedupe: "latest_by_key",
     key: ["channel_id"],

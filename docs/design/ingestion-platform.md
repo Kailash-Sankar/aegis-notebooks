@@ -27,7 +27,8 @@ existing code.
 - **Hydrate** a windowed slice of the warehouse into DuckDB for notebooks.
 - Observe the whole pipeline with bounded, low-noise telemetry.
 - Learn: OLTP vs OLAP, at-least-once + idempotency, partitioning/ordering,
-  medallion layering, materialization, cache invalidation, observability.
+  warehouse layering (ingested → prepared → aggregated), materialization,
+  cache invalidation, observability.
 
 ### Non-goals (explicitly deferred)
 - Exactly-once streaming, Flink-style windowing.
@@ -46,7 +47,7 @@ One authority per fact. Extended from ADR 0001/0002 for the ingestion path:
 | Tier | Store | Owns | Mutable? |
 |---|---|---|---|
 | Raw / lake | **RustFS `raw/`** | Immutable truth of what arrived | Append-only |
-| Warehouse | **ClickHouse** | Rebuildable materializations (bronze/silver/gold) | Rewritable |
+| Warehouse | **ClickHouse** | Rebuildable materializations (ingested/prepared/aggregated) | Rewritable |
 | Serving cache | **DuckDB** | A window of the warehouse, per workspace | Disposable |
 | Catalog | **PocketBase** | Queryable metadata projection | Projection |
 
@@ -98,8 +99,8 @@ unchanged. This is the first new ADR this design should produce.
          │              ┌───────────────────────────┐
          └─────────────▶│ ClickHouse (OLAP)         │
                         │ shared db + tenant/ws cols │
-                        │ bronze → silver → gold     │
                         └───────────┬───────────────┘
+                        (ingested → prepared → aggregated)
                                     │ export window (Parquet)
                                     ▼
                         ┌───────────────────────────┐
@@ -190,7 +191,7 @@ and **finalised** by `write_source_contract`; drift is detected by
   },
   "load": {
     "target": "clickhouse",
-    "layer": "bronze",
+    "layer": "ingested",
     "mode": "upsert",
     "dedupe": "latest_by_key",
     "key": ["channel_id"]
@@ -269,7 +270,7 @@ RustFS.
 |---|---|---|---|---|
 | `ingest.chunks` | `workspace_id` | 6 | 7d | chunk-landed manifests |
 | `ingest.dlq` | `workspace_id` | 3 | 30d | poison chunks after max attempts |
-| `warehouse.events` | `workspace_id` | 6 | 7d | `gold.updated`, insight/refresh triggers |
+| `warehouse.events` | `workspace_id` | 6 | 7d | `aggregated.updated`, insight/refresh triggers |
 
 - **Partition key = `workspace_id`** → per-workspace ordering; consumers scale
   up to the partition count.
@@ -291,17 +292,17 @@ work is modelled as durable, multi-step workflows; the bridge consumer forwards
 
 | Workflow | Trigger | Steps |
 |---|---|---|
-| `ingest/chunk.load` | event `ingest/chunk.landed` | read raw → apply contract → insert bronze → update catalog → emit `warehouse.events` |
-| `warehouse/rebuild` | schedule (nightly) | silver transforms → gold aggregations → emit freshness |
-| `insights/daily` | schedule (daily) | trends / anomaly detection → `gold_insights` |
+| `ingest/chunk.load` | event `ingest/chunk.landed` | read raw → apply contract → insert ingested → update catalog → emit `warehouse.events` |
+| `warehouse/rebuild` | schedule (nightly) | prepared models → aggregated summaries → emit freshness |
+| `insights/daily` | schedule (daily) | trends / anomaly detection → `aggregated_insights` |
 | `hydration/refresh` | event or on-demand | export window → write Parquet → write manifest → swap DuckDB views |
 | `retention/sweep` | schedule | expire raw / TTL housekeeping |
 
 Periodic work is triggered by a **hand-rolled scheduler**
 (`runner/src/scheduler/`): job definitions live in code, `lastRunAt` is
 persisted in `state.json`, and an append-only `runs.jsonl` records every run.
-Implemented jobs: `warehouse-refresh` (rebuild silver/gold + refresh the DuckDB
-hydration window) and `insights` (recompute `gold_insights`).
+Implemented jobs: `warehouse-refresh` (rebuild prepared/aggregated + refresh the DuckDB
+hydration window) and `insights` (recompute `aggregated_insights`).
 
 Rules:
 - **Concurrency keyed by `workspace_id`** so one workspace cannot stampede.
@@ -317,10 +318,10 @@ Rules:
 `tenant_id` and `workspace_id` as the leading `ORDER BY` keys. Isolation is by
 predicate now; DB-per-tenant is a documented future upgrade.
 
-**Bronze** (raw-shaped, deduped at the engine level):
+**Ingested** (raw-shaped, deduped at the engine level):
 
 ```sql
-CREATE TABLE IF NOT EXISTS aegis.bronze_streamers
+CREATE TABLE IF NOT EXISTS aegis.ingested_streamers
 (
   tenant_id    LowCardinality(String),
   workspace_id LowCardinality(String),
@@ -347,14 +348,14 @@ ORDER BY (tenant_id, workspace_id, channel_id);
 - Queries must filter on `tenant_id`/`workspace_id` (enforced by a query builder
   / views as defence in depth).
 
-**Silver / gold:** normalised / modelled tables and derived aggregates, same
+**Prepared / aggregated:** normalised / modelled tables and derived aggregates, same
 leading keys. Implemented (Phase 2) as **plain-SQL full rebuilds** run by the
-load workflow: `silver_stream_events` (dedupe via `FINAL` + derived
-`duration_minutes`), `gold_stream_daily`, and `gold_channel_totals`
+load workflow: `prepared_stream_events` (dedupe via `FINAL` + derived
+`duration_minutes`), `aggregated_stream_daily`, and `aggregated_channel_totals`
 (`TRUNCATE` + `INSERT ... SELECT`, idempotent; production would make these
-incremental). Bronze schema evolution is **additive**
+incremental). Ingested schema evolution is **additive**
 (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`); type changes need a migration.
-`gold_insights` holds background-computed results (Phase 5). Implemented
+`aggregated_insights` holds background-computed results (Phase 5). Implemented
 (`runner/src/insights/`): deterministic SQL computes today's total watch time,
 the top channel, and peak-viewer anomalies, exposed at
 `GET /workspaces/:id/insights`.
@@ -390,7 +391,7 @@ Implemented (`runner/src/hydrate/`): month-partition Parquet under
   "asOf": "2026-01-02T00:00:00Z",
   "window": { "start": "2025-10-04T00:00:00Z", "end": "2026-01-02T00:00:00Z", "days": 90 },
   "tables": {
-    "gold_revenue_daily": {
+    "aggregated_revenue_daily": {
       "watermark": "2026-01-02T00:00:00Z",
       "files": [
         { "path": "hydrate/.../2025-11.parquet", "partition": "2025-11", "rows": 4321, "checksum": "sha256:..." }
@@ -523,14 +524,14 @@ per notebook query/hydration.
 ## 8. Roadmap
 
 - **Phase 1 — Event-driven ingestion.** Mock source → connector → gateway →
-  RustFS raw + manifest → Redpanda → Inngest → loader → CH bronze. No scheduler.
+  RustFS raw + manifest → Redpanda → Inngest → loader → CH ingested. No scheduler.
 - **Phase 2 — Warehouse.** Shared CH DB; engines/partitions/ordering;
-  bronze→silver→gold.
-- **Phase 3 — Transforms + scheduling.** Silver/gold as durable steps; nightly
+  ingested→prepared→aggregated.
+- **Phase 3 — Transforms + scheduling.** Prepared/aggregated as durable steps; nightly
   jobs; event-triggered workflows; manual range backfills.
 - **Phase 4 — Hydration.** CH→Parquet→DuckDB; 90d default; as-of watermark;
   partition-granular incremental.
-- **Phase 5 — Background insights.** Periodic trends/anomalies → `gold_insights`.
+- **Phase 5 — Background insights.** Periodic trends/anomalies → `aggregated_insights`.
 - **Cross-cutting — Observability** from Phase 1.
 
 ---

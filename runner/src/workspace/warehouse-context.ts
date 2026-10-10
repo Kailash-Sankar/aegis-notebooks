@@ -41,7 +41,7 @@ export async function buildWarehouseContext(
   }
   lines.push(
     "",
-    "Headline findings are in `gold_insights` and served at",
+    "Headline findings are in `aggregated_insights` and served at",
     "`GET /workspaces/<id>/insights`. Prefer these views over re-deriving from",
     "raw files when they cover the question.",
   );

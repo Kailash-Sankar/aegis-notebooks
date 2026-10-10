@@ -1,9 +1,9 @@
-import { assertIdentifier } from "../warehouse/bronze.js";
+import { assertIdentifier } from "../warehouse/ingested.js";
 import type { Warehouse } from "../warehouse/client.js";
 
 /**
  * Background insights (design §4.6, Phase 5): periodic, deterministic SQL over
- * silver that writes headline findings into `gold_insights`. The notebook reads
+ * prepared that writes headline findings into `aggregated_insights`. The notebook reads
  * them; no LLM is involved (insights are facts, not prose).
  */
 
@@ -18,9 +18,9 @@ function literal(value: string): string {
   return `'${value}'`;
 }
 
-function goldInsightsDdl(db: string): string {
+function aggregatedInsightsDdl(db: string): string {
   return (
-    `CREATE TABLE IF NOT EXISTS ${db}.gold_insights (` +
+    `CREATE TABLE IF NOT EXISTS ${db}.aggregated_insights (` +
     `tenant_id LowCardinality(String), ` +
     `workspace_id LowCardinality(String), ` +
     `insight_id String, ` +
@@ -58,7 +58,7 @@ function insertStatements(db: string, tenant: string, workspace: string): string
   return [
     // Top channel by watch minutes today.
     (
-      `INSERT INTO ${db}.gold_insights ` +
+      `INSERT INTO ${db}.aggregated_insights ` +
       selectCols(
         `concat('top_channel_', formatDateTime(today(), '%Y-%m-%d'))`,
         `'top_channel'`,
@@ -66,12 +66,12 @@ function insertStatements(db: string, tenant: string, workspace: string): string
         `toFloat64(sum(watch_minutes))`,
         `concat('Top channel ', toString(channel_id), ' by watch minutes')`,
       ).replace("{CHANNEL}", "channel_id") +
-      `FROM ${db}.silver_stream_events WHERE workspace_id = ${w} AND toDate(started_at) = today() ` +
+      `FROM ${db}.prepared_stream_events WHERE workspace_id = ${w} AND toDate(started_at) = today() ` +
       `GROUP BY channel_id ORDER BY sum(watch_minutes) DESC LIMIT 1`
     ),
     // Total watch minutes today.
     (
-      `INSERT INTO ${db}.gold_insights ` +
+      `INSERT INTO ${db}.aggregated_insights ` +
       selectCols(
         `'total_watch_today'`,
         `'total'`,
@@ -79,11 +79,11 @@ function insertStatements(db: string, tenant: string, workspace: string): string
         `toFloat64(sum(watch_minutes))`,
         `'Total watch minutes today'`,
       ).replace("{CHANNEL}", "toUInt64(0)") +
-      `FROM ${db}.silver_stream_events WHERE workspace_id = ${w} AND toDate(started_at) = today()`
+      `FROM ${db}.prepared_stream_events WHERE workspace_id = ${w} AND toDate(started_at) = today()`
     ),
     // Peak-viewer anomalies (max > 2x average) today.
     (
-      `INSERT INTO ${db}.gold_insights ` +
+      `INSERT INTO ${db}.aggregated_insights ` +
       selectCols(
         `concat('peak_spike_', toString(channel_id))`,
         `'anomaly'`,
@@ -91,7 +91,7 @@ function insertStatements(db: string, tenant: string, workspace: string): string
         `toFloat64(max(peak_viewers))`,
         `concat('Peak spike on channel ', toString(channel_id))`,
       ).replace("{CHANNEL}", "channel_id") +
-      `FROM ${db}.silver_stream_events WHERE workspace_id = ${w} AND toDate(started_at) = today() ` +
+      `FROM ${db}.prepared_stream_events WHERE workspace_id = ${w} AND toDate(started_at) = today() ` +
       `GROUP BY channel_id HAVING max(peak_viewers) > 2 * avg(peak_viewers) AND avg(peak_viewers) > 0 ` +
       `ORDER BY max(peak_viewers) DESC LIMIT 5`
     ),
@@ -110,22 +110,22 @@ export async function rebuildInsights(
 ): Promise<number> {
   const db = assertIdentifier(deps.warehouse.database);
   const w = literal(args.workspaceId);
-  await deps.warehouse.command(goldInsightsDdl(db));
+  await deps.warehouse.command(aggregatedInsightsDdl(db));
 
-  if (!(await tableExists(deps.warehouse, db, "silver_stream_events"))) {
+  if (!(await tableExists(deps.warehouse, db, "prepared_stream_events"))) {
     return 0;
   }
 
   // Lightweight, synchronous delete scoped to this workspace.
   await deps.warehouse.command(
-    `DELETE FROM ${db}.gold_insights WHERE workspace_id = ${w}`,
+    `DELETE FROM ${db}.aggregated_insights WHERE workspace_id = ${w}`,
   );
   for (const sql of insertStatements(db, args.tenantId, args.workspaceId)) {
     await deps.warehouse.command(sql);
   }
 
   const rows = await deps.warehouse.queryRows(
-    `SELECT count() AS n FROM ${db}.gold_insights WHERE workspace_id = ${w}`,
+    `SELECT count() AS n FROM ${db}.aggregated_insights WHERE workspace_id = ${w}`,
   );
   return Number(rows[0]?.n ?? 0);
 }
@@ -135,10 +135,10 @@ export async function listInsights(
   workspaceId: string,
 ): Promise<Array<Record<string, unknown>>> {
   const db = assertIdentifier(deps.warehouse.database);
-  if (!(await tableExists(deps.warehouse, db, "gold_insights"))) return [];
+  if (!(await tableExists(deps.warehouse, db, "aggregated_insights"))) return [];
   return deps.warehouse.queryRows(
     `SELECT kind, channel_id, metric, value, headline, toString(as_of) AS as_of ` +
-      `FROM ${db}.gold_insights WHERE workspace_id = ${literal(workspaceId)} ` +
+      `FROM ${db}.aggregated_insights WHERE workspace_id = ${literal(workspaceId)} ` +
       `ORDER BY value DESC`,
   );
 }

@@ -142,7 +142,7 @@ export function discover(args: DiscoverArgs): DiscoveryResult {
     },
     load: {
       target: "clickhouse",
-      layer: "bronze",
+      layer: "ingested",
       mode: key ? "upsert" : "append",
       dedupe: key ? "latest_by_key" : "none",
       key: loadKey,

@@ -19,7 +19,7 @@ const contract: SourceContract = {
   },
   load: {
     target: "clickhouse",
-    layer: "bronze",
+    layer: "ingested",
     mode: "upsert",
     dedupe: "latest_by_key",
     key: ["channel_id"],
@@ -48,7 +48,7 @@ const manifest: ChunkManifest = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
-test("loads raw JSONL into bronze with projected columns + metadata", async () => {
+test("loads raw JSONL into ingested with projected columns + metadata", async () => {
   const raw = new MemoryRawStore();
   const sourceRows = [
     { channel_id: 1, followers: 100, updated_at: "2026-01-01T00:00:00.000Z", extra: "drop me" },
@@ -66,11 +66,11 @@ test("loads raw JSONL into bronze with projected columns + metadata", async () =
     manifest,
   );
 
-  assert.equal(result.table, "aegis.bronze_streamers");
+  assert.equal(result.table, "aegis.ingested_streamers");
   assert.equal(result.rows, 2);
   assert.equal(warehouse.ddl.length, 1);
 
-  const inserted = warehouse.rows("aegis.bronze_streamers");
+  const inserted = warehouse.rows("aegis.ingested_streamers");
   assert.equal(inserted.length, 2);
   const first = inserted[0]!;
   assert.equal(first.tenant_id, "t1");

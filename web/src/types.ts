@@ -126,7 +126,7 @@ export interface SuggestedAnalysis {
   createdAt: string;
 }
 
-/** A background-computed headline finding (gold_insights). */
+/** A background-computed headline finding (aggregated_insights). */
 export interface Insight {
   kind: string;
   channel_id: number | string;

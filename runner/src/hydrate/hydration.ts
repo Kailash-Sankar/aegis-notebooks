@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { assertIdentifier } from "../warehouse/bronze.js";
+import { assertIdentifier } from "../warehouse/ingested.js";
 import type { Warehouse } from "../warehouse/client.js";
 import type { WorkspacePaths } from "../workspace/paths.js";
 import {
@@ -33,12 +33,12 @@ export interface HydrateTableSpec {
 
 export const HYDRATE_TABLES: HydrateTableSpec[] = [
   {
-    table: "silver_stream_events",
-    view: "hydrate_silver_stream_events",
+    table: "prepared_stream_events",
+    view: "hydrate_prepared_stream_events",
     timeColumn: "started_at",
   },
-  { table: "gold_stream_daily", view: "hydrate_gold_stream_daily", timeColumn: "day" },
-  { table: "gold_channel_totals", view: "hydrate_gold_channel_totals" },
+  { table: "aggregated_stream_daily", view: "hydrate_aggregated_stream_daily", timeColumn: "day" },
+  { table: "aggregated_channel_totals", view: "hydrate_aggregated_channel_totals" },
 ];
 
 export interface HydrationDeps {

@@ -7,7 +7,7 @@ import type { Config } from "../config.js";
  */
 export interface Warehouse {
   readonly enabled: boolean;
-  /** The database all bronze/silver/gold tables live in. */
+  /** The database all ingested/prepared/aggregated tables live in. */
   readonly database: string;
   /** Run a DDL/command statement (idempotent; uses IF NOT EXISTS). */
   ensureTable(createSql: string): Promise<void>;

@@ -18,8 +18,8 @@ test("buildWarehouseContext summarizes the hydration manifest", async () => {
         asOf: "2026-10-04T00:00:00Z",
         window: { from: "2026-07-06T00:00:00Z", to: "2026-10-04T00:00:00Z", days: 90 },
         tables: {
-          gold_stream_daily: {
-            view: "hydrate_gold_stream_daily",
+          aggregated_stream_daily: {
+            view: "hydrate_aggregated_stream_daily",
             watermark: "2026-10-04T00:00:00Z",
             partitions: { "2026-10": {} },
           },
@@ -30,7 +30,7 @@ test("buildWarehouseContext summarizes the hydration manifest", async () => {
     );
     const context = await buildWarehouseContext(paths);
     assert.ok(context);
-    assert.match(context, /hydrate_gold_stream_daily/);
+    assert.match(context, /hydrate_aggregated_stream_daily/);
     assert.match(context, /last 90 days/);
   } finally {
     await rm(root, { recursive: true, force: true });

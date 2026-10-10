@@ -3,7 +3,7 @@ import { getHydration, listInsights } from "../api.js";
 import type { HydrationManifest, Insight } from "../types.js";
 
 /**
- * Surfaces the warehouse in the notebook: background-computed `gold_insights`
+ * Surfaces the warehouse in the notebook: background-computed `aggregated_insights`
  * and the local hydration window (`hydrate_<table>` DuckDB views).
  */
 export function InsightsView({

@@ -31,7 +31,7 @@ async function contractDatasets(paths: WorkspacePaths): Promise<string[]> {
   return datasets;
 }
 
-/** Nightly materialization: rebuild silver/gold, then refresh the DuckDB cache. */
+/** Nightly materialization: rebuild prepared/aggregated, then refresh the DuckDB cache. */
 async function warehouseRefresh(deps: JobDeps): Promise<string> {
   const list = await deps.workspaces.list();
   let datasets = 0;
@@ -69,7 +69,7 @@ async function insightsRefresh(deps: JobDeps): Promise<string> {
   return `computed ${count} insight(s) across ${list.length} workspace(s)`;
 }
 
-/** Seconds since the newest silver event for a workspace (null if unknown). */
+/** Seconds since the newest prepared event for a workspace (null if unknown). */
 async function freshnessSeconds(
   warehouse: Warehouse,
   workspaceId: string,
@@ -77,7 +77,7 @@ async function freshnessSeconds(
   try {
     const rows = await warehouse.queryRows(
       `SELECT toUnixTimestamp(now()) - toUnixTimestamp(max(started_at)) AS age ` +
-        `FROM ${warehouse.database}.silver_stream_events ` +
+        `FROM ${warehouse.database}.prepared_stream_events ` +
         `WHERE workspace_id = '${workspaceId.replace(/'/g, "")}'`,
     );
     const age = Number(rows[0]?.age);
@@ -92,13 +92,13 @@ export function createJobs(deps: JobDeps): ScheduledJob[] {
     {
       id: "warehouse-refresh",
       intervalMs: deps.config.SCHEDULER_REFRESH_INTERVAL_MS,
-      description: "rebuild silver/gold and refresh the DuckDB hydration window",
+      description: "rebuild prepared/aggregated and refresh the DuckDB hydration window",
       run: () => warehouseRefresh(deps),
     },
     {
       id: "insights",
       intervalMs: deps.config.SCHEDULER_INSIGHTS_INTERVAL_MS,
-      description: "recompute gold_insights for every workspace",
+      description: "recompute aggregated_insights for every workspace",
       run: () => insightsRefresh(deps),
     },
   ];

@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import {
   assertColumnType,
   assertIdentifier,
-  bronzeAddColumnStatements,
-  bronzeDdl,
-  bronzeTableName,
-} from "./bronze.js";
+  ingestedAddColumnStatements,
+  ingestedDdl,
+  ingestedTableName,
+} from "./ingested.js";
 import type { SourceContract } from "../sources/contract.js";
 
 const contract: SourceContract = {
@@ -22,7 +22,7 @@ const contract: SourceContract = {
   },
   load: {
     target: "clickhouse",
-    layer: "bronze",
+    layer: "ingested",
     mode: "upsert",
     dedupe: "latest_by_key",
     key: ["channel_id"],
@@ -35,8 +35,8 @@ const contract: SourceContract = {
 };
 
 test("generates ReplacingMergeTree DDL with partition + order by", () => {
-  const ddl = bronzeDdl("aegis", contract);
-  assert.match(ddl, /CREATE TABLE IF NOT EXISTS aegis\.bronze_streamers/);
+  const ddl = ingestedDdl("aegis", contract);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS aegis\.ingested_streamers/);
   assert.match(ddl, /ReplacingMergeTree\(_version\)/);
   assert.match(ddl, /PARTITION BY toYYYYMM\(updated_at\)/);
   assert.match(ddl, /ORDER BY \(tenant_id, workspace_id, channel_id\)/);
@@ -53,17 +53,17 @@ test("append contracts use MergeTree and fall back to ingest-time partitioning",
       updated_at: { type: "DateTime64(3)" },
     },
   };
-  const ddl = bronzeDdl("aegis", append);
+  const ddl = ingestedDdl("aegis", append);
   assert.match(ddl, /ENGINE = MergeTree\(\)/);
   assert.match(ddl, /PARTITION BY toYYYYMM\(_ingested_at\)/);
 });
 
 test("emits additive ALTER statements for schema evolution", () => {
-  const stmts = bronzeAddColumnStatements("aegis", contract);
+  const stmts = ingestedAddColumnStatements("aegis", contract);
   assert.ok(
     stmts.some((s) =>
       s.startsWith(
-        "ALTER TABLE aegis.bronze_streamers ADD COLUMN IF NOT EXISTS channel_id UInt64",
+        "ALTER TABLE aegis.ingested_streamers ADD COLUMN IF NOT EXISTS channel_id UInt64",
       ),
     ),
   );
@@ -87,8 +87,8 @@ test("rejects unsafe identifiers and column types (no SQL injection)", () => {
   assert.throws(() => assertIdentifier("bad; DROP TABLE x"), /unsafe identifier/);
   assert.throws(() => assertColumnType("UInt64; DROP TABLE x"), /unsafe column type/);
   assert.throws(
-    () => bronzeDdl("aegis", { ...contract, dataset: "x;drop" }),
+    () => ingestedDdl("aegis", { ...contract, dataset: "x;drop" }),
     /unsafe identifier/,
   );
-  assert.equal(bronzeTableName(contract), "bronze_streamers");
+  assert.equal(ingestedTableName(contract), "ingested_streamers");
 });

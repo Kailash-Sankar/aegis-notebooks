@@ -28,12 +28,12 @@ test("hydrate exports a window and is incremental on refresh", async () => {
     const firstExports = warehouse.exports.length;
     assert.ok(firstExports > 0);
     assert.deepEqual(
-      Object.keys(first.tables.silver_stream_events?.partitions ?? {}),
+      Object.keys(first.tables.prepared_stream_events?.partitions ?? {}),
       ["2025-12", "2026-01", "2026-02", "2026-03"],
     );
     // A model with no time column exports one "all" partition.
     assert.deepEqual(
-      Object.keys(first.tables.gold_channel_totals?.partitions ?? {}),
+      Object.keys(first.tables.aggregated_channel_totals?.partitions ?? {}),
       ["all"],
     );
     assert.ok(await readManifest(paths.hydrateManifest));
@@ -46,12 +46,12 @@ test("hydrate exports a window and is incremental on refresh", async () => {
     // plus the full table are re-exported.
     assert.equal(warehouse.exports.length - firstExports, 3);
     assert.equal(
-      second.tables.silver_stream_events?.partitions["2026-02"]?.checksum,
-      first.tables.silver_stream_events?.partitions["2026-02"]?.checksum,
+      second.tables.prepared_stream_events?.partitions["2026-02"]?.checksum,
+      first.tables.prepared_stream_events?.partitions["2026-02"]?.checksum,
     );
     assert.notEqual(
-      second.tables.silver_stream_events?.partitions["2026-03"]?.checksum,
-      first.tables.silver_stream_events?.partitions["2026-03"]?.checksum,
+      second.tables.prepared_stream_events?.partitions["2026-03"]?.checksum,
+      first.tables.prepared_stream_events?.partitions["2026-03"]?.checksum,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

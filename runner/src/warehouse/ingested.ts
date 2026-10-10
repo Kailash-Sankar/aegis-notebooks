@@ -1,7 +1,7 @@
 import type { SourceContract } from "../sources/contract.js";
 
 /**
- * Bronze table DDL generation (design §4.7). Contract column types are already
+ * Ingested table DDL generation (design §4.7). Contract column types are already
  * ClickHouse type strings, but they are still validated before interpolation —
  * a contract is agent-authored and must not be able to inject SQL.
  */
@@ -22,7 +22,7 @@ export function assertColumnType(type: string): string {
   return type;
 }
 
-/** Metadata columns every bronze table carries. */
+/** Metadata columns every ingested table carries. */
 export const META_COLUMNS = [
   "tenant_id",
   "workspace_id",
@@ -32,8 +32,8 @@ export const META_COLUMNS = [
   "_version",
 ] as const;
 
-export function bronzeTableName(contract: SourceContract): string {
-  return `bronze_${assertIdentifier(contract.dataset)}`;
+export function ingestedTableName(contract: SourceContract): string {
+  return `ingested_${assertIdentifier(contract.dataset)}`;
 }
 
 function eventTimeColumn(contract: SourceContract): string | undefined {
@@ -41,13 +41,13 @@ function eventTimeColumn(contract: SourceContract): string | undefined {
 }
 
 /**
- * `CREATE TABLE IF NOT EXISTS` for a dataset's bronze table. Upsert contracts
+ * `CREATE TABLE IF NOT EXISTS` for a dataset's ingested table. Upsert contracts
  * use `ReplacingMergeTree(_version)` so the engine keeps the newest row per
  * `ORDER BY` key; append contracts use plain `MergeTree`.
  */
-export function bronzeDdl(database: string, contract: SourceContract): string {
+export function ingestedDdl(database: string, contract: SourceContract): string {
   const db = assertIdentifier(database);
-  const table = bronzeTableName(contract);
+  const table = ingestedTableName(contract);
 
   const columns: string[] = [
     "tenant_id LowCardinality(String)",
@@ -90,12 +90,12 @@ export function bronzeDdl(database: string, contract: SourceContract): string {
  * (source drift) is materialised without a manual migration. Type changes and
  * removals still require a deliberate migration.
  */
-export function bronzeAddColumnStatements(
+export function ingestedAddColumnStatements(
   database: string,
   contract: SourceContract,
 ): string[] {
   const db = assertIdentifier(database);
-  const table = bronzeTableName(contract);
+  const table = ingestedTableName(contract);
   return Object.entries(contract.columns).map(
     ([name, col]) =>
       `ALTER TABLE ${db}.${table} ADD COLUMN IF NOT EXISTS ` +

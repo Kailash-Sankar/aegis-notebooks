@@ -75,7 +75,7 @@ pnpm dev:mock        # http://127.0.0.1:8099
 Phase 1 is being built per [docs/design/ingestion-platform.md](docs/design/ingestion-platform.md).
 A mocked OLTP source (`mock-source/`) feeds a connector + gateway that land
 immutable raw chunks in RustFS and publish manifests to Redpanda. An Inngest
-workflow then loads each chunk into the ClickHouse **bronze** table
+workflow then loads each chunk into the ClickHouse **ingested** table
 (`ReplacingMergeTree`, deduped by contract key). Redpanda, ClickHouse, and
 Inngest run as compose services; the runner falls back to an in-process broker,
 an in-memory warehouse, and inline loading when `KAFKA_BROKERS` /
@@ -101,7 +101,7 @@ cat > "workspaces/$WS/sources/twitch-mock/contract.json" <<JSON
   "baseUrl": "http://mock-source:8099",
   "sync": { "mode": "incremental", "endpoint": "/v1/stream_events",
             "cursorField": "updated_at", "cursorParam": "updated_since", "pageSize": 500 },
-  "load": { "target": "clickhouse", "layer": "bronze", "mode": "upsert",
+  "load": { "target": "clickhouse", "layer": "ingested", "mode": "upsert",
             "dedupe": "latest_by_key", "key": ["event_id"] },
   "columns": {
     "event_id": { "type": "String" },
@@ -112,11 +112,11 @@ cat > "workspaces/$WS/sources/twitch-mock/contract.json" <<JSON
 }
 JSON
 
-# 4) pull: connector -> raw (RustFS) -> Redpanda -> Inngest -> ClickHouse bronze
+# 4) pull: connector -> raw (RustFS) -> Redpanda -> Inngest -> ClickHouse ingested
 curl -X POST "localhost:8787/workspaces/$WS/sources/twitch-mock/pull"
 
 # 5) verify
-curl -s 'http://localhost:8123/?query=SELECT%20count()%20FROM%20aegis.bronze_stream_events' \
+curl -s 'http://localhost:8123/?query=SELECT%20count()%20FROM%20aegis.ingested_stream_events' \
   --user aegis:aegis-dev-password
 ```
 

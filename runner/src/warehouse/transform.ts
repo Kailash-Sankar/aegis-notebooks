@@ -1,8 +1,8 @@
-import { assertIdentifier } from "./bronze.js";
+import { assertIdentifier } from "./ingested.js";
 import type { Warehouse } from "./client.js";
 
 /**
- * Silver/gold transforms (design §4.7). Plain, hand-written SQL — no dbt — so
+ * Prepared/aggregated transforms (design §4.7). Plain, hand-written SQL — no dbt — so
  * the mechanics are visible: a **full rebuild** per run (TRUNCATE + INSERT ...
  * SELECT). That is idempotent and simple; a production system would make these
  * incremental (watermarks / materialized views). dbt is a deliberate later
@@ -38,10 +38,10 @@ function rebuildStep(
 }
 
 function streamEventTransforms(db: string): TransformStep[] {
-  const silver = rebuildStep(
+  const prepared = rebuildStep(
     db,
-    "silver_stream_events",
-    `CREATE TABLE IF NOT EXISTS ${db}.silver_stream_events (
+    "prepared_stream_events",
+    `CREATE TABLE IF NOT EXISTS ${db}.prepared_stream_events (
        tenant_id LowCardinality(String),
        workspace_id LowCardinality(String),
        event_id String,
@@ -69,13 +69,13 @@ function streamEventTransforms(db: string): TransformStep[] {
        toUInt64(greatest(0, dateDiff('minute', started_at, coalesce(ended_at, updated_at)))) AS duration_minutes,
        updated_at,
        _version
-     FROM ${db}.bronze_stream_events FINAL`,
+     FROM ${db}.ingested_stream_events FINAL`,
   );
 
   const daily = rebuildStep(
     db,
-    "gold_stream_daily",
-    `CREATE TABLE IF NOT EXISTS ${db}.gold_stream_daily (
+    "aggregated_stream_daily",
+    `CREATE TABLE IF NOT EXISTS ${db}.aggregated_stream_daily (
        tenant_id LowCardinality(String),
        workspace_id LowCardinality(String),
        day Date,
@@ -98,14 +98,14 @@ function streamEventTransforms(db: string): TransformStep[] {
        max(peak_viewers) AS peak_viewers_max,
        avg(peak_viewers) AS peak_viewers_avg,
        avg(duration_minutes) AS avg_duration_minutes
-     FROM ${db}.silver_stream_events
+     FROM ${db}.prepared_stream_events
      GROUP BY tenant_id, workspace_id, day, channel_id`,
   );
 
   const totals = rebuildStep(
     db,
-    "gold_channel_totals",
-    `CREATE TABLE IF NOT EXISTS ${db}.gold_channel_totals (
+    "aggregated_channel_totals",
+    `CREATE TABLE IF NOT EXISTS ${db}.aggregated_channel_totals (
        tenant_id LowCardinality(String),
        workspace_id LowCardinality(String),
        channel_id UInt64,
@@ -126,19 +126,19 @@ function streamEventTransforms(db: string): TransformStep[] {
        max(peak_viewers) AS peak_viewers_max,
        min(started_at) AS first_seen,
        max(started_at) AS last_seen
-     FROM ${db}.silver_stream_events
+     FROM ${db}.prepared_stream_events
      GROUP BY tenant_id, workspace_id, channel_id`,
   );
 
-  return [silver, daily, totals];
+  return [prepared, daily, totals];
 }
 
 function streamerTransforms(db: string): TransformStep[] {
   return [
     rebuildStep(
       db,
-      "silver_streamers",
-      `CREATE TABLE IF NOT EXISTS ${db}.silver_streamers (
+      "prepared_streamers",
+      `CREATE TABLE IF NOT EXISTS ${db}.prepared_streamers (
          tenant_id LowCardinality(String),
          workspace_id LowCardinality(String),
          channel_id UInt64,
@@ -164,7 +164,7 @@ function streamerTransforms(db: string): TransformStep[] {
          mature,
          updated_at,
          _version
-       FROM ${db}.bronze_streamers FINAL`,
+       FROM ${db}.ingested_streamers FINAL`,
     ),
   ];
 }

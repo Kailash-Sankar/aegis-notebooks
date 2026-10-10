@@ -38,7 +38,7 @@
       "required": ["target", "layer", "mode", "dedupe", "key"],
       "properties": {
         "target": { "const": "clickhouse" },
-        "layer": { "const": "bronze" },
+        "layer": { "const": "ingested" },
         "mode": { "enum": ["append", "upsert"] },
         "dedupe": { "enum": ["latest_by_key", "none"] },
         "key": { "type": "array", "minItems": 1, "items": { "type": "string" } }

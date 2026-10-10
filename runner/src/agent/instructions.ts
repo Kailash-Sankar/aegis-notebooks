@@ -76,10 +76,10 @@ the workspace directory; the filesystem is the source of truth.
 ## Local warehouse
 
 When a workspace has been hydrated, DuckDB exposes \`hydrate_<table>\` views over a
-local Parquet window (e.g. \`hydrate_gold_stream_daily\`,
-\`hydrate_silver_stream_events\`, \`hydrate_gold_channel_totals\`) — query them with
+local Parquet window (e.g. \`hydrate_aggregated_stream_daily\`,
+\`hydrate_prepared_stream_events\`, \`hydrate_aggregated_channel_totals\`) — query them with
 \`duckdb_query\`. A hydrated-warehouse summary (views, partitions, data as-of) is
-injected when available. Headline findings live in \`gold_insights\` and are
+injected when available. Headline findings live in \`aggregated_insights\` and are
 served at \`GET /workspaces/<id>/insights\`. Prefer these over re-deriving from
 raw files.
 

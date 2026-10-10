@@ -66,7 +66,7 @@ test("write_source_contract validates against the schema and persists", async ()
     sync: { mode: "full", endpoint: "/v1/d", pageSize: 10 },
     load: {
       target: "clickhouse",
-      layer: "bronze",
+      layer: "ingested",
       mode: "append",
       dedupe: "none",
       key: ["a"],

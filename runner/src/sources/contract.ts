@@ -39,7 +39,7 @@ export interface SourceContract {
   };
   load: {
     target: "clickhouse";
-    layer: "bronze";
+    layer: "ingested";
     mode: LoadMode;
     dedupe: DedupeMode;
     key: string[];
@@ -144,7 +144,7 @@ export function parseContract(raw: unknown): SourceContract {
     sync: syncOut,
     load: {
       target: "clickhouse",
-      layer: "bronze",
+      layer: "ingested",
       mode: loadMode,
       dedupe,
       key: key as string[],

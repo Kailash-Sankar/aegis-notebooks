@@ -6,7 +6,7 @@ import { rebuildTransforms } from "../warehouse/transform.js";
 
 /**
  * Inngest workflows: the control plane (design §4.6). The first function loads
- * a landed chunk into bronze. The bridge sends `ingest/chunk.landed`; this
+ * a landed chunk into ingested. The bridge sends `ingest/chunk.landed`; this
  * workflow runs the durable, retryable, per-workspace-serialized load.
  */
 
@@ -36,12 +36,12 @@ export function createIngestWorkflows(
     { event: INGEST_EVENT },
     async ({ event, step }) => {
       const manifest = event.data as unknown as ChunkManifest;
-      const loaded = await step.run("load-bronze", () =>
+      const loaded = await step.run("load-ingested", () =>
         loadManifest(deps, manifest),
       );
-      // Silver/gold are a full, idempotent rebuild per run (small data); a
+      // Prepared/aggregated are a full, idempotent rebuild per run (small data); a
       // production system would debounce or schedule this instead.
-      const transformed = await step.run("transform-silver-gold", () =>
+      const transformed = await step.run("transform-prepared-aggregated", () =>
         rebuildTransforms(
           deps.warehouse,
           deps.warehouse.database,

@@ -25,7 +25,7 @@ export interface Telemetry {
   recordChunk(rows: number, deduped: boolean): void;
   recordJob(job: string, status: string, durationMs: number): void;
   recordHttp(method: string, path: string, status: number, durationMs: number): void;
-  /** Seconds since the newest event in a workspace's silver table. */
+  /** Seconds since the newest event in a workspace's prepared table. */
   setFreshness(workspaceId: string, seconds: number): void;
   /** Queue counters; `pending` = published - consumed (a local lag proxy). */
   incQueuePublished(count?: number): void;
@@ -87,7 +87,7 @@ class OtelTelemetry implements Telemetry {
 
     meter
       .createObservableGauge("aegis.freshness.seconds", {
-        description: "Seconds since the newest silver event, per workspace",
+        description: "Seconds since the newest prepared event, per workspace",
         unit: "s",
       })
       .addCallback((result) => {

@@ -4,12 +4,12 @@ import type { SourceContract } from "../sources/contract.js";
 import { readContract, schemaFingerprint } from "../sources/contract.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
 import type { Warehouse } from "./client.js";
-import { bronzeAddColumnStatements, bronzeDdl, bronzeTableName } from "./bronze.js";
+import { ingestedAddColumnStatements, ingestedDdl, ingestedTableName } from "./ingested.js";
 import { rebuildTransforms } from "./transform.js";
 
 /**
  * The loader (design §4.7): apply a contract to one landed chunk and write it
- * to ClickHouse bronze. Deterministic — no LLM. Idempotent at the engine level
+ * to ClickHouse ingested. Deterministic — no LLM. Idempotent at the engine level
  * (content-addressed raw + `ReplacingMergeTree`).
  */
 
@@ -87,7 +87,7 @@ export function projectRow(
   return out;
 }
 
-/** Load one manifest's raw chunk into bronze. */
+/** Load one manifest's raw chunk into ingested. */
 export async function loadChunk(
   deps: { warehouse: Warehouse; raw: RawStore; now?: () => number },
   contract: SourceContract,
@@ -101,12 +101,12 @@ export async function loadChunk(
   );
 
   await deps.warehouse.ensureTable(
-    bronzeDdl(deps.warehouse.database, contract),
+    ingestedDdl(deps.warehouse.database, contract),
   );
-  for (const sql of bronzeAddColumnStatements(deps.warehouse.database, contract)) {
+  for (const sql of ingestedAddColumnStatements(deps.warehouse.database, contract)) {
     await deps.warehouse.command(sql);
   }
-  const table = `${deps.warehouse.database}.${bronzeTableName(contract)}`;
+  const table = `${deps.warehouse.database}.${ingestedTableName(contract)}`;
   await deps.warehouse.insert(table, projected);
   return { table, rows: projected.length };
 }
@@ -143,7 +143,7 @@ export interface ProcessResult {
   tables: string[];
 }
 
-/** Load a manifest into bronze, then rebuild silver/gold for its dataset. */
+/** Load a manifest into ingested, then rebuild prepared/aggregated for its dataset. */
 export async function processManifest(
   deps: LoaderDeps,
   manifest: ChunkManifest,

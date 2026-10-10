@@ -12,7 +12,7 @@ export const TOPICS = {
   ingestChunks: "ingest.chunks",
   /** Poison chunks after max attempts. */
   ingestDlq: "ingest.dlq",
-  /** Warehouse lifecycle events (`gold.updated`, refresh triggers). */
+  /** Warehouse lifecycle events (`aggregated.updated`, refresh triggers). */
   warehouseEvents: "warehouse.events",
 } as const;
 
