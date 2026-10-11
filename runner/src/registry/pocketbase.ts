@@ -90,13 +90,13 @@ export class PocketBaseRegistry implements RegistryProjection {
     throw new Error(`PocketBase auth failed: ${lastError}`);
   }
 
-  private async request<T>(
+  private async send(
     method: string,
     path: string,
+    token: string,
     body?: unknown,
-  ): Promise<T> {
-    const token = await this.authenticate();
-    const res = await fetch(`${this.config.POCKETBASE_URL}${path}`, {
+  ): Promise<Response> {
+    return fetch(`${this.config.POCKETBASE_URL}${path}`, {
       method,
       headers: {
         "content-type": "application/json",
@@ -104,6 +104,22 @@ export class PocketBaseRegistry implements RegistryProjection {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    let token = await this.authenticate();
+    let res = await this.send(method, path, token, body);
+    // The superuser token is short-lived. Without this, a cached expired token
+    // would make every projection write fail with 401/403 until restart.
+    if (res.status === 401 || res.status === 403) {
+      this.token = null;
+      token = await this.authenticate();
+      res = await this.send(method, path, token, body);
+    }
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`PocketBase ${method} ${path} -> ${res.status}: ${text}`);
