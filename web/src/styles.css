@@ -559,7 +559,7 @@ body {
 }
 
 .aegis-error {
-  color: #b91c1c;
+  color: #ef4444;
 }
 
 .aegis-insight-grid {
@@ -575,7 +575,9 @@ body {
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--color-surface, #fafafa);
+  /* Theme-aware surface. `--color-surface` is not a real token; using it left
+     a near-white fallback that hid light-on-light text in dark mode. */
+  background: var(--color-background-surface);
 }
 
 .aegis-insight-kind {
