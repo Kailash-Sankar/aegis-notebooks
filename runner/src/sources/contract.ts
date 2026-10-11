@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { SourceAuth } from "./auth.js";
 
 /**
  * A source contract is the agent-authored description of how to pull and shape
@@ -44,6 +45,8 @@ export interface SourceContract {
     dedupe: DedupeMode;
     key: string[];
   };
+  /** How to authenticate to the source. Omitted or `{type:"none"}` = open. */
+  auth?: SourceAuth;
   columns: Record<string, ContractColumn>;
   quality?: { notNull?: string[]; unique?: string[] };
   physical?: { partitionBy?: string; orderBy?: string[] };
@@ -150,6 +153,7 @@ export function parseContract(raw: unknown): SourceContract {
       key: key as string[],
     },
     columns,
+    ...(root.auth === undefined ? {} : { auth: parseAuth(root.auth) }),
     ...(root.quality === undefined
       ? {}
       : { quality: parseQuality(root.quality) }),
@@ -157,6 +161,38 @@ export function parseContract(raw: unknown): SourceContract {
       ? {}
       : { physical: parsePhysical(root.physical) }),
   };
+}
+
+/** Parse + narrow the optional `auth` block. */
+export function parseAuth(raw: unknown): SourceAuth {
+  const a = asRecord(raw, "auth");
+  const type = asString(a.type, "auth.type");
+  switch (type) {
+    case "none":
+      return { type: "none" };
+    case "bearer":
+      return { type: "bearer", secretRef: asString(a.secretRef, "auth.secretRef") };
+    case "header":
+      return {
+        type: "header",
+        header: asString(a.header, "auth.header"),
+        secretRef: asString(a.secretRef, "auth.secretRef"),
+      };
+    case "basic":
+      return {
+        type: "basic",
+        usernameRef: asString(a.usernameRef, "auth.usernameRef"),
+        passwordRef: asString(a.passwordRef, "auth.passwordRef"),
+      };
+    case "query":
+      return {
+        type: "query",
+        param: asString(a.param, "auth.param"),
+        secretRef: asString(a.secretRef, "auth.secretRef"),
+      };
+    default:
+      throw new ContractError(`auth.type "${type}" is not supported`);
+  }
 }
 
 function parseQuality(raw: unknown): SourceContract["quality"] {

@@ -25,14 +25,20 @@ async function main(): Promise<void> {
     : null;
 
   const host = process.env.MOCK_HOST ?? "127.0.0.1";
+  const apiKey = process.env.MOCK_API_KEY;
   const { url } = await listen(
     db,
-    { faultRate: Number(process.env.MOCK_FAULT_RATE ?? 0) },
+    {
+      faultRate: Number(process.env.MOCK_FAULT_RATE ?? 0),
+      ...(apiKey ? { apiKey } : {}),
+    },
     port,
     host,
   );
 
-  console.log(`[mock-source] db=${dbPath} generate=${generate}`);
+  console.log(
+    `[mock-source] db=${dbPath} generate=${generate} auth=${apiKey ? "api-key" : "open"}`,
+  );
   console.log(`[mock-source] listening on ${url}`);
   console.log(`[mock-source]   GET ${url}/v1/streamers?limit=5`);
 

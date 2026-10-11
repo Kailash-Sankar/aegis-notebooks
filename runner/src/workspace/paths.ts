@@ -39,6 +39,8 @@ export interface WorkspacePaths {
   sourcesDir: string;
   sourceContract(source: string): string;
   sourceState(source: string): string;
+  /** Gitignored per-source secrets (`sources/{source}/credentials.json`). */
+  sourceCredentials(source: string): string;
   /** Hydration cache: Parquet exports of a warehouse window. */
   hydrateDir: string;
   hydrateManifest: string;
@@ -76,6 +78,8 @@ export function workspacePaths(rootAbs: string, workspaceId: string): WorkspaceP
     sourcesDir: join(root, "sources"),
     sourceContract: (source: string) => join(root, "sources", source, "contract.json"),
     sourceState: (source: string) => join(root, "sources", source, "state.json"),
+    sourceCredentials: (source: string) =>
+      join(root, "sources", source, "credentials.json"),
     hydrateDir: join(root, "hydrate"),
     hydrateManifest: join(root, "hydrate", "manifest.json"),
     hydrateTableDir: (table: string) => join(root, "hydrate", table),

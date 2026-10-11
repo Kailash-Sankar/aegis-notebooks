@@ -17,6 +17,8 @@ export interface ServerOptions {
   faultRate?: number;
   defaultLimit?: number;
   maxLimit?: number;
+  /** When set, `/v1/*` requires this key (Bearer, `x-api-key`, or `?api_key=`). */
+  apiKey?: string;
 }
 
 interface Cursor {
@@ -66,6 +68,7 @@ export function createMockServer(
   const faultRate = options.faultRate ?? 0;
   const defaultLimit = options.defaultLimit ?? 200;
   const maxLimit = options.maxLimit ?? 1000;
+  const apiKey = options.apiKey && options.apiKey.length > 0 ? options.apiKey : undefined;
 
   function maybeFault(res: import("node:http").ServerResponse): boolean {
     if (faultRate <= 0 || Math.random() >= faultRate) return false;
@@ -90,6 +93,29 @@ export function createMockServer(
     if (!url.pathname.startsWith("/v1/") || !cfg) {
       sendJson(res, 404, { error: "not_found", path: url.pathname });
       return;
+    }
+
+    if (apiKey) {
+      const authHeader = req.headers["authorization"];
+      const bearer =
+        typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+          ? authHeader.slice("Bearer ".length)
+          : undefined;
+      const xApiKey = req.headers["x-api-key"];
+      const presented =
+        bearer ??
+        (typeof xApiKey === "string" ? xApiKey : undefined) ??
+        url.searchParams.get("api_key") ??
+        undefined;
+      if (presented !== apiKey) {
+        sendJson(
+          res,
+          401,
+          { error: "unauthorized" },
+          { "www-authenticate": "Bearer" },
+        );
+        return;
+      }
     }
 
     if (maybeFault(res)) return;

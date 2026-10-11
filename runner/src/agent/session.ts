@@ -21,6 +21,15 @@ import {
 import { resolveModel, type ResolvedModel } from "./model.js";
 import { KeyedQueue } from "../util/keyed-queue.js";
 
+/** Runner-provided capabilities the agent tools need (wired in index.ts). */
+export interface AgentHooks {
+  /** Pull one configured source for a workspace (auth-aware). */
+  syncSource?: (
+    workspaceId: string,
+    source: string,
+  ) => Promise<{ chunks: number; rows: number; watermark: string | null }>;
+}
+
 interface SessionHandle {
   session: AgentSession;
   manager: SessionManager;
@@ -67,6 +76,7 @@ export class AgentRunner {
     private readonly config: Config,
     private readonly registry: RegistryProjection,
     private readonly workspaces: WorkspaceManager,
+    private readonly hooks: AgentHooks = {},
   ) {}
 
   /** Start the workspace-scoped data-discovery onboarding task. */
@@ -205,6 +215,12 @@ export class AgentRunner {
       assetsDir: nb?.assetsDir ?? paths.memoryDir,
       reportsDir: nb?.reportsDir ?? `${paths.memoryDir}/reports`,
       sourcesDir: paths.sourcesDir,
+      ...(this.hooks.syncSource
+        ? {
+            syncSource: (source: string) =>
+              this.hooks.syncSource!(workspaceId, source),
+          }
+        : {}),
       config: this.config,
       registry: this.registry,
       onContextSaved: async () => {

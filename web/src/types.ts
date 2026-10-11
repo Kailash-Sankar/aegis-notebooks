@@ -155,3 +155,53 @@ export interface WorkspaceContext {
   metadataSchema: { version?: number; tables?: Record<string, MetadataTable> } | null;
   suggestedAnalyses?: SuggestedAnalysis[];
 }
+
+/** A configured pull source (contract + connector state). */
+export interface SourceSummary {
+  source: string;
+  dataset: string;
+  baseUrl: string;
+  endpoint: string;
+  syncMode: string;
+  authType: string;
+  fingerprint: string;
+  columns: number;
+  watermark: string | null;
+  lastSyncAt: string | null;
+  hasCredentials: boolean;
+}
+
+/** A draft contract returned by source discovery. */
+export interface SourceContractDraft {
+  version: number;
+  source: string;
+  dataset: string;
+  baseUrl: string;
+  sync: {
+    mode: string;
+    endpoint: string;
+    cursorField?: string;
+    cursorParam?: string;
+    pageSize: number;
+  };
+  load: { target: string; layer: string; mode: string; dedupe: string; key: string[] };
+  columns: Record<string, { type: string; eventTime?: boolean; pii?: boolean }>;
+  quality?: { notNull?: string[]; unique?: string[] };
+}
+
+export interface SourceDiscoverResult {
+  rowCount: number;
+  candidateKeys: string[];
+  candidateCursorFields: string[];
+  warnings: string[];
+  columns: Array<{ name: string; type: string; nullRatio?: number; unique?: boolean }>;
+  draft: SourceContractDraft;
+}
+
+export interface SourcePullResult {
+  source: string;
+  chunks: number;
+  rows: number;
+  watermark: string | null;
+  landed: Array<{ id: string; deduped: boolean }>;
+}

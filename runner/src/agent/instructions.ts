@@ -37,8 +37,15 @@ the workspace directory; the filesystem is the source of truth.
 - \`write_source_contract\` — validate a source contract against the published
   JSON Schema and persist it to \`sources/<source>/contract.json\`. Start from the
   \`discover_source\` draft; confirm the primary key, event-time column and PII
-  flags with the user before committing. After saving, the dataset can be pulled
-  with \`POST /workspaces/<id>/sources/<source>/pull\`.
+  flags with the user before committing. For sources that need auth, the contract
+  holds only a scheme + \`secretRef\` (e.g. \`{type:"bearer",secretRef:"API_KEY"}\`),
+  never the secret itself.
+- \`list_sources\` — list the external sources already configured for this workspace
+  (contract summary, auth type, last watermark). Check this before onboarding so
+  you know whether data arrives by upload or by pull.
+- \`sync_source\` — pull a configured source's latest data into the warehouse
+  (raw -> ingested -> prepared/aggregated). Call it after \`write_source_contract\`,
+  or when the user asks to refresh a source.
 - \`suggest_analysis\` — record a suggested analysis so the user can start it in one click.
 - \`save_context\` — write the finalized \`memory/onboarding_context.md\` and mark
   onboarding complete. Use ONLY after the user confirms; never write that file directly.
@@ -110,7 +117,11 @@ raw files.
 
 export const ONBOARDING_PROMPT = `Onboard this workspace.
 
-1. List the files in \`data/\`.
+This workspace may receive data two ways: **uploaded files** in \`data/\` and
+**external sources** pulled into the warehouse. Start by discovering which apply.
+
+1. Call \`list_sources\` and list the files in \`data/\`. If neither exists, ask
+   whether the user wants to upload files or connect an external source, then stop.
 2. For each data file, call \`register_dataset\` to create a view.
 3. For each view, inspect it: row count, columns and types (\`DESCRIBE\`/\`SUMMARIZE\`),
    null ratios, and a few distinct values for low-cardinality columns.
@@ -131,4 +142,8 @@ export const ONBOARDING_PROMPT = `Onboard this workspace.
 6. For each suggested analysis, call \`suggest_analysis\` with a short title and a
    one-line prompt to build it (so I can start it with one click).
 
-If \`data/\` is empty, say so and suggest what to upload.`;
+If \`data/\` is empty but sources exist, profile the source columns from its
+contract and the hydrated warehouse summary instead of uploading. Describe each
+source dataset in the same way and include it in the suggested analyses. Use
+\`sync_source\` to refresh a source when the user asks. If neither files nor
+sources exist, say so and suggest uploading files or connecting a source.`;

@@ -1,5 +1,6 @@
 import type { SourceContract } from "./contract.js";
 import type { ConnectorState } from "./state.js";
+import type { SecretResolver, SourceAuth } from "./auth.js";
 
 /**
  * The connector pulls chunks from a source HTTP API. It is deliberately dumb
@@ -44,12 +45,61 @@ export class HttpSourceError extends Error {
   }
 }
 
+/** A secret reference that is absent is a terminal (non-retryable) error. */
+function requireSecret(resolve: SecretResolver | undefined, ref: string): string {
+  const value = resolve?.(ref);
+  if (value === undefined || value === "") {
+    throw new HttpSourceError(
+      `missing credential "${ref}" required for source auth`,
+      { retryable: false },
+    );
+  }
+  return value;
+}
+
+/** Apply the contract's auth scheme to the outgoing request. */
+export function applyAuth(
+  headers: Record<string, string>,
+  params: URLSearchParams,
+  auth: SourceAuth | undefined,
+  resolve: SecretResolver | undefined,
+): void {
+  if (!auth || auth.type === "none") return;
+  switch (auth.type) {
+    case "bearer":
+      headers.authorization = `Bearer ${requireSecret(resolve, auth.secretRef)}`;
+      break;
+    case "header":
+      headers[auth.header.toLowerCase()] = requireSecret(resolve, auth.secretRef);
+      break;
+    case "basic":
+      headers.authorization = `Basic ${Buffer.from(
+        `${requireSecret(resolve, auth.usernameRef)}:${requireSecret(resolve, auth.passwordRef)}`,
+      ).toString("base64")}`;
+      break;
+    case "query":
+      params.set(auth.param, requireSecret(resolve, auth.secretRef));
+      break;
+  }
+}
+
+/** Options for `HttpSourceClient` (auth + injectable fetch for tests). */
+export interface HttpSourceClientOptions {
+  fetchImpl?: typeof fetch;
+  auth?: SourceAuth;
+  resolveSecret?: SecretResolver;
+}
+
 /** HTTP implementation of `SourceClient` against a source base URL. */
 export class HttpSourceClient implements SourceClient {
+  private readonly options: HttpSourceClientOptions;
+
   constructor(
     private readonly baseUrl: string,
-    private readonly fetchImpl: typeof fetch = globalThis.fetch,
-  ) {}
+    options: HttpSourceClientOptions = {},
+  ) {
+    this.options = options;
+  }
 
   async fetchPage(args: FetchPageArgs): Promise<SourcePage> {
     const url = new URL(args.endpoint, this.baseUrl);
@@ -57,9 +107,12 @@ export class HttpSourceClient implements SourceClient {
     if (args.cursor) url.searchParams.set("cursor", args.cursor);
     url.searchParams.set("limit", String(args.limit));
 
+    const headers: Record<string, string> = { accept: "application/json" };
+    applyAuth(headers, url.searchParams, this.options.auth, this.options.resolveSecret);
+
     let res: Response;
     try {
-      res = await this.fetchImpl(url, { headers: { accept: "application/json" } });
+      res = await (this.options.fetchImpl ?? globalThis.fetch)(url, { headers });
     } catch (err) {
       // Network/timeout: transient.
       throw new HttpSourceError(

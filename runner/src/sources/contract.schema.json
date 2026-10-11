@@ -73,6 +73,38 @@
         "partitionBy": { "type": "string" },
         "orderBy": { "type": "array", "items": { "type": "string" } }
       }
+    },
+    "auth": {
+      "description": "How to authenticate to the source. The secret value is never stored here — only a reference name resolved from the environment or a gitignored credentials file.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["none", "bearer", "header", "basic", "query"] },
+        "secretRef": { "type": "string", "minLength": 1 },
+        "header": { "type": "string", "minLength": 1 },
+        "param": { "type": "string", "minLength": 1 },
+        "usernameRef": { "type": "string", "minLength": 1 },
+        "passwordRef": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "bearer" } }, "required": ["type"] },
+          "then": { "required": ["secretRef"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "header" } }, "required": ["type"] },
+          "then": { "required": ["header", "secretRef"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "query" } }, "required": ["type"] },
+          "then": { "required": ["param", "secretRef"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "basic" } }, "required": ["type"] },
+          "then": { "required": ["usernameRef", "passwordRef"] }
+        }
+      ]
     }
   }
 }

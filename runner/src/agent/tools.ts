@@ -7,6 +7,7 @@ import { newId } from "../ids.js";
 import { withDuckdbLock } from "../workspace/ducklock.js";
 import { writeReport } from "../workspace/reports.js";
 import { HttpSourceClient } from "../sources/connector.js";
+import { listSources, type SourcePaths } from "../sources/pull.js";
 import { discover } from "../sources/discover.js";
 import {
   parseContract,
@@ -32,6 +33,12 @@ export interface ToolContext {
   reportsDir: string;
   /** Workspace sources directory (`sources/`); used by source-contract tools. */
   sourcesDir: string;
+  /** Pull one configured source (provided by the runner; auth-aware). */
+  syncSource?: (source: string) => Promise<{
+    chunks: number;
+    rows: number;
+    watermark: string | null;
+  }>;
   config: Config;
   registry: RegistryProjection;
   /** Called when the agent commits workspace context (workspace scope only). */
@@ -439,6 +446,57 @@ export function createAnalyticsTools(ctx: ToolContext) {
     },
   });
 
+  const listSourcesTool = defineTool({
+    name: "list_sources",
+    label: "List Sources",
+    description:
+      "List the external sources configured for this workspace (contract summary, " +
+      "auth type, and last incremental watermark). Use before syncing to see what exists.",
+    parameters: Type.Object({}),
+    executionMode: "sequential",
+    async execute() {
+      const summaries = await listSources(sourcePaths(ctx));
+      return {
+        content: [
+          { type: "text", text: summaries.length ? JSON.stringify(summaries, null, 2) : "No sources configured." },
+        ],
+        details: undefined,
+      };
+    },
+  });
+
+  const syncSourceTool = defineTool({
+    name: "sync_source",
+    label: "Sync Source",
+    description:
+      "Pull the latest data for a configured source into the warehouse (raw -> ingested -> " +
+      "prepared/aggregated). Call after `write_source_contract`, or when the user asks to " +
+      "refresh a source. Returns rows, chunks, and the new watermark.",
+    parameters: Type.Object({
+      source: Type.String({
+        description: "Source name, as saved by write_source_contract.",
+      }),
+    }),
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      if (!ctx.syncSource) {
+        throw new Error("source sync is not available in this context");
+      }
+      const result = await ctx.syncSource(params.source);
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `Synced "${params.source}": ${result.rows} row(s) in ${result.chunks} chunk(s); ` +
+              `watermark ${result.watermark ?? "n/a"}.`,
+          },
+        ],
+        details: result,
+      };
+    },
+  });
+
   return [
     duckdbQuery,
     registerDataset,
@@ -448,7 +506,19 @@ export function createAnalyticsTools(ctx: ToolContext) {
     writeReportTool,
     discoverSource,
     writeSourceContract,
+    listSourcesTool,
+    syncSourceTool,
   ];
+}
+
+/** Build the source-path helper from the tool context. */
+function sourcePaths(ctx: ToolContext): SourcePaths {
+  return {
+    sourcesDir: ctx.sourcesDir,
+    sourceContract: (source) => join(ctx.sourcesDir, source, "contract.json"),
+    sourceState: (source) => join(ctx.sourcesDir, source, "state.json"),
+    sourceCredentials: (source) => join(ctx.sourcesDir, source, "credentials.json"),
+  };
 }
 
 type Column = { name: string; type: string };

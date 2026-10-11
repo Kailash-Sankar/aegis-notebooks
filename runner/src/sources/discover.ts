@@ -38,6 +38,10 @@ export interface DiscoverArgs {
 
 const PII_RE = /(^|_)(email|phone|ssn|tax_id|address|full_name|first_name|last_name)($|_)/i;
 const CURSOR_NAME_RE = /(updated|created|modified|inserted|_at|_ts|time|timestamp|date)/i;
+// Watermark columns track *when a row changed*; event-time columns track when
+// the event happened. The partition key uses event time (must be non-null).
+const WATERMARK_NAME_RE = /(updated|modified|inserted|created|_ts)/i;
+const EVENT_NAME_RE = /(started|ended|occurred|event|_at|time|timestamp|date)/i;
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -95,19 +99,33 @@ export function discover(args: DiscoverArgs): DiscoveryResult {
   const candidateKeys = (idLike.length > 0 ? idLike : uniqueColumns).map(
     (c) => c.name,
   );
-  const candidateCursorFields = columns
-    .filter((c) => c.baseType.startsWith("DateTime") || c.baseType === "Date")
-    .sort(
-      (a, b) =>
-        Number(CURSOR_NAME_RE.test(b.name)) - Number(CURSOR_NAME_RE.test(a.name)),
-    )
+  const timestampColumns = columns.filter(
+    (c) => c.baseType.startsWith("DateTime") || c.baseType === "Date",
+  );
+  // Prefer non-nullable timestamps: a nullable partition key is rejected by
+  // ClickHouse and a nullable watermark is a poor resume point.
+  const candidateCursorFields = timestampColumns
+    .slice()
+    .sort((a, b) => {
+      const na = a.nullRatio > 0 ? 1 : 0;
+      const nb = b.nullRatio > 0 ? 1 : 0;
+      if (na !== nb) return na - nb;
+      return Number(CURSOR_NAME_RE.test(b.name)) - Number(CURSOR_NAME_RE.test(a.name));
+    })
     .map((c) => c.name);
+  const nonNullableTs = timestampColumns.filter((c) => c.nullRatio === 0);
+  const tsPool = nonNullableTs.length > 0 ? nonNullableTs : timestampColumns;
 
   const warnings: string[] = [];
   const key = candidateKeys[0];
   const cursor =
-    candidateCursorFields.find((name) => CURSOR_NAME_RE.test(name)) ??
-    candidateCursorFields[0];
+    tsPool.find((c) => WATERMARK_NAME_RE.test(c.name))?.name ??
+    tsPool.find((c) => CURSOR_NAME_RE.test(c.name))?.name ??
+    tsPool[0]?.name;
+  const eventTime =
+    tsPool.find(
+      (c) => EVENT_NAME_RE.test(c.name) && !WATERMARK_NAME_RE.test(c.name),
+    )?.name ?? cursor;
   if (!key) {
     warnings.push(
       "no unique column in the sample; defaulting to append with a nominal key",
@@ -121,7 +139,7 @@ export function discover(args: DiscoverArgs): DiscoveryResult {
   for (const column of columns) {
     contractColumns[column.name] = {
       type: column.type,
-      ...(column.name === cursor ? { eventTime: true } : {}),
+      ...(column.name === eventTime ? { eventTime: true } : {}),
       ...(PII_RE.test(column.name) ? { pii: true } : {}),
     };
   }
@@ -154,7 +172,7 @@ export function discover(args: DiscoverArgs): DiscoveryResult {
     ...(cursor || candidateKeys.length > 0
       ? {
           physical: {
-            ...(cursor ? { partitionBy: `toYYYYMM(${cursor})` } : {}),
+            ...(eventTime ? { partitionBy: `toYYYYMM(${eventTime})` } : {}),
             ...(candidateKeys.length > 0 ? { orderBy: candidateKeys } : {}),
           },
         }

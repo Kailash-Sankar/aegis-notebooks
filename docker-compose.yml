@@ -108,6 +108,8 @@ services:
       MOCK_LATE_PERCENT: "0.15"
       # Adds a column after N ticks to exercise schema drift / re-onboarding.
       MOCK_DRIFT_AFTER_TICKS: "0"
+      # When set, /v1/* requires this key (demo source auth). Empty = open.
+      MOCK_API_KEY: ${MOCK_API_KEY:-}
     volumes:
       - mock_data:/data
     ports:

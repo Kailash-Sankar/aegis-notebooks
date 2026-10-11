@@ -7,6 +7,9 @@ import type {
   QueryResult,
   Report,
   ReportMeta,
+  SourceDiscoverResult,
+  SourcePullResult,
+  SourceSummary,
   Widget,
   Workspace,
   WorkspaceContext,
@@ -87,6 +90,78 @@ export function getHydration(workspaceId: string): Promise<HydrationManifest | n
     if (res.status === 404) return null;
     return json<HydrationManifest>(res);
   });
+}
+
+export function listSources(workspaceId: string): Promise<SourceSummary[]> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/sources`).then(
+    json<SourceSummary[]>,
+  );
+}
+
+export interface DiscoverSourceInput {
+  source: string;
+  dataset: string;
+  baseUrl: string;
+  endpoint: string;
+  limit?: number;
+  auth?: Record<string, unknown>;
+}
+
+export function discoverSource(
+  workspaceId: string,
+  input: DiscoverSourceInput,
+): Promise<SourceDiscoverResult> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/sources/discover`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  }).then(json<SourceDiscoverResult>);
+}
+
+export function saveSourceContract(
+  workspaceId: string,
+  source: string,
+  contract: unknown,
+): Promise<{ source: string; dataset: string; fingerprint: string }> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/sources/${source}/contract`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ contract }),
+  }).then(json<{ source: string; dataset: string; fingerprint: string }>);
+}
+
+export function saveSourceCredentials(
+  workspaceId: string,
+  source: string,
+  secrets: Record<string, string>,
+): Promise<{ ok: boolean; refs: string[] }> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/sources/${source}/credentials`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ secrets }),
+  }).then(json<{ ok: boolean; refs: string[] }>);
+}
+
+export function pullSource(
+  workspaceId: string,
+  source: string,
+): Promise<SourcePullResult> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/sources/${source}/pull`, {
+    method: "POST",
+  }).then(json<SourcePullResult>);
+}
+
+export function deleteSource(workspaceId: string, source: string): Promise<unknown> {
+  return fetch(`${BASE}/workspaces/${workspaceId}/sources/${source}`, {
+    method: "DELETE",
+  }).then(json<unknown>);
+}
+
+/** Trigger a scheduled job now (operator): e.g. `warehouse-refresh`, `insights`. */
+export function runSchedulerJob(jobId: string): Promise<unknown> {
+  return fetch(`${BASE}/scheduler/run/${jobId}`, { method: "POST" }).then(
+    json<unknown>,
+  );
 }
 
 export function listReports(

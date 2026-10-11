@@ -40,6 +40,11 @@ function eventTimeColumn(contract: SourceContract): string | undefined {
   return Object.entries(contract.columns).find(([, c]) => c.eventTime)?.[0];
 }
 
+/** ClickHouse rejects nullable partition keys; unwrap a nullable event time. */
+function nonNullPartition(column: string, type: string | undefined): string {
+  return type && type.startsWith("Nullable(") ? `assumeNotNull(${column})` : column;
+}
+
 /**
  * `CREATE TABLE IF NOT EXISTS` for a dataset's ingested table. Upsert contracts
  * use `ReplacingMergeTree(_version)` so the engine keeps the newest row per
@@ -65,7 +70,7 @@ export function ingestedDdl(database: string, contract: SourceContract): string 
 
   const eventCol = eventTimeColumn(contract);
   const partition = eventCol
-    ? `toYYYYMM(${assertIdentifier(eventCol)})`
+    ? `toYYYYMM(${nonNullPartition(assertIdentifier(eventCol), contract.columns[eventCol]?.type)})`
     : "toYYYYMM(_ingested_at)";
   const orderBy = ["tenant_id", "workspace_id", ...contract.load.key.map(assertIdentifier)].join(
     ", ",

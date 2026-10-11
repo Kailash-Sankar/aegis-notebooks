@@ -30,6 +30,7 @@ import {
 import { transcriptToMessages } from "../transcript.js";
 import type { ChatMessage, DataFile, WorkspaceContext } from "../types.js";
 import { AgentChat, appendAssistantDelta } from "./AgentChat.js";
+import { SourcesPanel } from "./SourcesPanel.js";
 
 /**
  * Workspace view: onboarding is a conversation (left), and the context it
@@ -75,7 +76,9 @@ export function WorkspaceView({
   const status = context?.status;
   const onboarded = Boolean(status?.onboarded);
   const stale = Boolean(status?.stale);
+  const [hasSources, setHasSources] = useState(false);
   const hasData = dataFiles.length > 0;
+  const canOnboard = hasData || hasSources;
 
   async function reloadTranscript(): Promise<void> {
     try {
@@ -183,7 +186,7 @@ export function WorkspaceView({
                 size="sm"
                 icon={<RefreshCw size={15} />}
                 onClick={() => run()}
-                isDisabled={busy || !hasData}
+                isDisabled={busy || !canOnboard}
               />
               <IconButton
                 label="Reset onboarding"
@@ -212,12 +215,12 @@ export function WorkspaceView({
                   label={onboarded ? "Re-run onboarding" : "Start onboarding"}
                   variant="primary"
                   icon={<Sparkles size={15} />}
-                  isDisabled={!hasData}
+                  isDisabled={!canOnboard}
                   onClick={() => run()}
                 />
-                {!hasData && (
+                {!canOnboard && (
                   <Text type="supporting" color="secondary">
-                    Upload data first.
+                    Upload data or connect a source first.
                   </Text>
                 )}
               </Stack>
@@ -311,6 +314,14 @@ export function WorkspaceView({
                 />
               </Stack>
             </Card>
+
+            <SourcesPanel
+              workspaceId={workspaceId}
+              onAvailability={setHasSources}
+              onChanged={() => {
+                void onContextChanged();
+              }}
+            />
 
             <Card>
               <Stack gap={3}>

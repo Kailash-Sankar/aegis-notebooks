@@ -151,7 +151,7 @@ test("HttpSourceClient builds params and parses the page", async () => {
       { status: 200, headers: { "content-type": "application/json" } },
     );
   }) as typeof fetch;
-  const client = new HttpSourceClient("http://mock.local", fetchImpl);
+  const client = new HttpSourceClient("http://mock.local", { fetchImpl });
   const p = await client.fetchPage({
     endpoint: "/v1/streamers",
     updatedSince: "2026-01-01T00:00:00.000Z",
@@ -170,10 +170,54 @@ test("HttpSourceClient classifies 429 as retryable with Retry-After", async () =
       status: 429,
       headers: { "retry-after": "2" },
     })) as typeof fetch;
-  const client = new HttpSourceClient("http://mock.local", fetchImpl);
+  const client = new HttpSourceClient("http://mock.local", { fetchImpl });
   await assert.rejects(
     () => client.fetchPage({ endpoint: "/v1/streamers", limit: 1 }),
     (err: unknown) =>
       err instanceof HttpSourceError && err.retryable && err.retryAfterMs === 2000,
+  );
+});
+
+test("HttpSourceClient applies bearer + query auth from a secret resolver", async () => {
+  const seen: Array<{ url: string; headers: Record<string, string> }> = [];
+  const fetchImpl = (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => {
+    seen.push({
+      url: String(input),
+      headers: (init?.headers ?? {}) as Record<string, string>,
+    });
+    return new Response(JSON.stringify({ data: [{ channel_id: 1 }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  const resolveSecret = (ref: string) => (ref === "TOKEN" ? "s3cr3t" : undefined);
+
+  const bearer = new HttpSourceClient("http://mock.local", {
+    fetchImpl,
+    auth: { type: "bearer", secretRef: "TOKEN" },
+    resolveSecret,
+  });
+  await bearer.fetchPage({ endpoint: "/v1/streamers", limit: 1 });
+  assert.equal(seen[0]?.headers.authorization, "Bearer s3cr3t");
+
+  const query = new HttpSourceClient("http://mock.local", {
+    fetchImpl,
+    auth: { type: "query", param: "api_key", secretRef: "TOKEN" },
+    resolveSecret,
+  });
+  await query.fetchPage({ endpoint: "/v1/streamers", limit: 1 });
+  assert.match(seen[1]?.url ?? "", /api_key=s3cr3t/);
+
+  const missing = new HttpSourceClient("http://mock.local", {
+    fetchImpl,
+    auth: { type: "bearer", secretRef: "ABSENT" },
+    resolveSecret,
+  });
+  await assert.rejects(
+    () => missing.fetchPage({ endpoint: "/v1/streamers", limit: 1 }),
+    (err: unknown) => err instanceof HttpSourceError && err.retryable === false,
   );
 });

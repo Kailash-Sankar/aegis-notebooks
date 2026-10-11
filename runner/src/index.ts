@@ -1,7 +1,7 @@
 import "./env.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { createRegistry } from "./registry/pocketbase.js";
@@ -19,10 +19,25 @@ import { currentUser } from "./auth/current-user.js";
 import { createRawStore } from "./raw/store.js";
 import { createBroker } from "./transport/broker.js";
 import { publishManifest, startChunkBridge } from "./ingest/bridge.js";
-import { runIngest } from "./ingest/gateway.js";
 import { HttpSourceClient } from "./sources/connector.js";
-import { readContract } from "./sources/contract.js";
-import { readState, writeState } from "./sources/state.js";
+import {
+  parseAuth,
+  parseContract,
+  readContract,
+  schemaFingerprint,
+  writeContract,
+} from "./sources/contract.js";
+import { validateContractSchema } from "./sources/contract-schema.js";
+import {
+  buildSourceClient,
+  listSources,
+  runSourcePull,
+} from "./sources/pull.js";
+import {
+  makeSecretResolver,
+  readCredentials,
+  writeCredentials,
+} from "./sources/secrets.js";
 import { discover } from "./sources/discover.js";
 import { diffColumns } from "./sources/drift.js";
 import { serve } from "inngest/node";
@@ -43,11 +58,18 @@ const registry = createRegistry(config);
 const backup = new BackupService(createBackupStore(config), registry);
 const quota = new QuotaService(config);
 const workspaces = new WorkspaceManager(config, registry);
-const agent = new AgentRunner(config, registry, workspaces);
-const deps: IngestDeps = { workspaces, registry, backup, quota };
 const raw = createRawStore(config);
 const broker = createBroker(config);
 const warehouse = createWarehouse(config);
+const agent = new AgentRunner(config, registry, workspaces, {
+  syncSource: (workspaceId, source) =>
+    runSourcePull({ raw, broker }, workspaces.pathsFor(workspaceId), {
+      tenantId: currentUser().id,
+      workspaceId,
+      source,
+    }),
+});
+const deps: IngestDeps = { workspaces, registry, backup, quota };
 const loaderDeps: LoaderDeps = { warehouse, raw, workspaces };
 const ingest = createIngestWorkflows(loaderDeps, {
   ...(config.INNGEST_BASE_URL ? { baseUrl: config.INNGEST_BASE_URL } : {}),
@@ -285,41 +307,154 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return send(res, 200, await listInsights({ warehouse }, workspaceId));
     }
 
-    // GET /workspaces/:id/sources/:source/check  -- detect contract drift
-    if (
-      method === "GET" &&
-      parts[2] === "sources" &&
-      parts[4] === "check" &&
-      parts[3]
-    ) {
-      const source = parts[3];
+    // ---- Sources: list / discover / contract / credentials / delete / check ----
+    if (parts[2] === "sources") {
       await workspaces.require(workspaceId);
       const paths = workspaces.pathsFor(workspaceId);
-      const contract = await readContract(paths.sourceContract(source));
-      if (!contract) {
-        return send(res, 404, { error: `no contract for source "${source}"` });
+
+      // GET /workspaces/:id/sources  -- configured sources + sync state
+      if (method === "GET" && parts.length === 3) {
+        return send(res, 200, await listSources(paths));
       }
-      const page = await new HttpSourceClient(contract.baseUrl).fetchPage({
-        endpoint: contract.sync.endpoint,
-        cursor: null,
-        limit: contract.sync.pageSize,
-      });
-      const discovery = discover({
-        source: contract.source,
-        dataset: contract.dataset,
-        baseUrl: contract.baseUrl,
-        endpoint: contract.sync.endpoint,
-        pageSize: contract.sync.pageSize,
-        rows: page.data,
-      });
-      const diff = diffColumns(contract, discovery.columns);
-      return send(res, 200, {
-        drift: diff.drifted ? diff : null,
-        candidateKeys: discovery.candidateKeys,
-        candidateCursorFields: discovery.candidateCursorFields,
-        warnings: discovery.warnings,
-        discovered: discovery.columns.map((c) => ({ name: c.name, type: c.type })),
-      });
+
+      // POST /workspaces/:id/sources/discover  -- sample + infer a draft contract
+      if (method === "POST" && parts.length === 4 && parts[3] === "discover") {
+        const body = await readJson<{
+          source?: string;
+          dataset?: string;
+          baseUrl?: string;
+          endpoint?: string;
+          limit?: number;
+          auth?: unknown;
+        }>(req);
+        if (!body.source || !body.dataset || !body.baseUrl || !body.endpoint) {
+          return send(res, 400, {
+            error: "source, dataset, baseUrl and endpoint are required",
+          });
+        }
+        const credentials = await readCredentials(
+          paths.sourceCredentials(body.source),
+        );
+        const client = new HttpSourceClient(body.baseUrl, {
+          ...(body.auth !== undefined ? { auth: parseAuth(body.auth) } : {}),
+          resolveSecret: makeSecretResolver(credentials),
+        });
+        const page = await client.fetchPage({
+          endpoint: body.endpoint,
+          cursor: null,
+          limit: body.limit ?? 200,
+        });
+        if (page.data.length === 0) {
+          return send(res, 422, { error: "source returned no rows to sample" });
+        }
+        const discovery = discover({
+          source: body.source,
+          dataset: body.dataset,
+          baseUrl: body.baseUrl,
+          endpoint: body.endpoint,
+          pageSize: body.limit ?? 200,
+          rows: page.data,
+        });
+        return send(res, 200, {
+          rowCount: discovery.rowCount,
+          candidateKeys: discovery.candidateKeys,
+          candidateCursorFields: discovery.candidateCursorFields,
+          warnings: discovery.warnings,
+          columns: discovery.columns.map((c) => ({
+            name: c.name,
+            type: c.type,
+            nullRatio: c.nullRatio,
+            unique: c.unique,
+          })),
+          draft: discovery.draft,
+        });
+      }
+
+      if (parts[3]) {
+        const source = parts[3];
+
+        // DELETE /workspaces/:id/sources/:source
+        if (method === "DELETE" && parts.length === 4) {
+          if (!/^[a-z0-9][a-z0-9_-]*$/.test(source)) {
+            return send(res, 400, { error: "invalid source name" });
+          }
+          await rm(join(paths.sourcesDir, source), { recursive: true, force: true });
+          return send(res, 200, { ok: true });
+        }
+
+        // PUT /workspaces/:id/sources/:source/contract
+        if (method === "PUT" && parts[4] === "contract") {
+          const body = await readJson<{ contract?: unknown }>(req);
+          const rawContract = body.contract ?? body;
+          const schema = validateContractSchema(rawContract);
+          if (!schema.valid) {
+            return send(res, 400, {
+              error: "contract failed schema validation",
+              errors: schema.errors,
+            });
+          }
+          let contract;
+          try {
+            contract = parseContract(rawContract);
+          } catch (err) {
+            return send(res, 400, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          if (contract.source !== source) {
+            return send(res, 400, {
+              error: `contract source "${contract.source}" does not match "${source}"`,
+            });
+          }
+          await writeContract(paths.sourceContract(source), contract);
+          return send(res, 200, {
+            source: contract.source,
+            dataset: contract.dataset,
+            fingerprint: schemaFingerprint(contract),
+          });
+        }
+
+        // PUT /workspaces/:id/sources/:source/credentials  (secrets, never echoed)
+        if (method === "PUT" && parts[4] === "credentials") {
+          const body = await readJson<{ secrets?: Record<string, unknown> }>(req);
+          const secrets: Record<string, string> = {};
+          for (const [k, v] of Object.entries(body.secrets ?? {})) {
+            if (typeof v === "string" && v !== "") secrets[k] = v;
+          }
+          await writeCredentials(paths.sourceCredentials(source), secrets);
+          return send(res, 200, { ok: true, refs: Object.keys(secrets) });
+        }
+
+        // GET /workspaces/:id/sources/:source/check  -- detect contract drift
+        if (method === "GET" && parts[4] === "check") {
+          const contract = await readContract(paths.sourceContract(source));
+          if (!contract) {
+            return send(res, 404, { error: `no contract for source "${source}"` });
+          }
+          const client = await buildSourceClient(paths, contract);
+          const page = await client.fetchPage({
+            endpoint: contract.sync.endpoint,
+            cursor: null,
+            limit: contract.sync.pageSize,
+          });
+          const discovery = discover({
+            source: contract.source,
+            dataset: contract.dataset,
+            baseUrl: contract.baseUrl,
+            endpoint: contract.sync.endpoint,
+            pageSize: contract.sync.pageSize,
+            rows: page.data,
+          });
+          const diff = diffColumns(contract, discovery.columns);
+          return send(res, 200, {
+            drift: diff.drifted ? diff : null,
+            candidateKeys: discovery.candidateKeys,
+            candidateCursorFields: discovery.candidateCursorFields,
+            warnings: discovery.warnings,
+            discovered: discovery.columns.map((c) => ({ name: c.name, type: c.type })),
+          });
+        }
+      }
     }
 
     // GET|POST /workspaces/:id/hydrate  -- cache a warehouse window for DuckDB
@@ -351,7 +486,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       }
     }
 
-    // POST /workspaces/:id/sources/:source/pull  (operator-only: pull + land)
+    // POST /workspaces/:id/sources/:source/pull  -- pull + land (auth-aware)
     if (
       method === "POST" &&
       parts[2] === "sources" &&
@@ -366,7 +501,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         return send(res, 404, { error: `no contract for source "${source}"` });
       }
       if (url.searchParams.get("check") === "1") {
-        const page = await new HttpSourceClient(contract.baseUrl).fetchPage({
+        const client = await buildSourceClient(paths, contract);
+        const page = await client.fetchPage({
           endpoint: contract.sync.endpoint,
           cursor: null,
           limit: contract.sync.pageSize,
@@ -384,28 +520,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
           return send(res, 409, { error: "contract drift detected", drift: diff });
         }
       }
-      const state = await readState(paths.sourceState(source));
-      const landed: Array<{ id: string; deduped: boolean }> = [];
-      const result = await runIngest(raw, {
-        tenantId: currentUser().id,
-        workspaceId,
-        contract,
-        client: new HttpSourceClient(contract.baseUrl),
-        state,
-        onManifest: async (manifest, deduped) => {
-          landed.push({ id: manifest.id, deduped });
-          telemetry().recordChunk(manifest.rows, deduped);
-          await publishManifest(broker, manifest);
-        },
-      });
-      await writeState(paths.sourceState(source), result.state);
-      return send(res, 200, {
-        source,
-        chunks: result.chunks,
-        rows: result.rows,
-        watermark: result.state.watermark,
-        landed,
-      });
+      const result = await runSourcePull(
+        { raw, broker },
+        paths,
+        { tenantId: currentUser().id, workspaceId, source },
+      );
+      return send(res, 200, result);
     }
 
     // POST /workspaces/:id/restore

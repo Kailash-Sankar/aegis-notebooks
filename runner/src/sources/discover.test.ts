@@ -46,6 +46,28 @@ test("discovers a draft with key, cursor and eventTime", () => {
   assert.deepEqual(d.draft.load.key, ["event_id"]);
 });
 
+test("prefers a non-nullable event time and a separate watermark", () => {
+  const rows = Array.from({ length: 5 }, (_, i) => ({
+    event_id: `e${i}`,
+    started_at: `2026-01-0${i + 1}T00:00:00.000Z`,
+    ended_at: i === 0 ? null : `2026-01-0${i + 1}T01:00:00.000Z`,
+    updated_at: `2026-01-0${i + 1}T02:00:00.000Z`,
+  }));
+  const d = discover({
+    source: "mock",
+    dataset: "events",
+    baseUrl: "http://x",
+    endpoint: "/v1/events",
+    rows,
+  });
+  // Watermark is updated_at; event time (and partition key) is started_at —
+  // never the nullable ended_at, which ClickHouse rejects as a partition key.
+  assert.equal(d.draft.sync.cursorField, "updated_at");
+  assert.equal(d.draft.columns.started_at?.eventTime, true);
+  assert.equal(d.draft.columns.ended_at?.eventTime, undefined);
+  assert.match(d.draft.physical?.partitionBy ?? "", /toYYYYMM\(started_at\)/);
+});
+
 test("warns and falls back to full/append when no key or timestamp", () => {
   const rows = [{ a: 1 }, { a: 1 }];
   const d = discover({
