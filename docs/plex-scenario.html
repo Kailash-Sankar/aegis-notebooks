@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plex on Aegis — End-to-End Learning Doc</title>
+<style>
+  :root{
+    --ink:#e5e7eb; --muted:#9ca3af; --border:#2a2f3a; --surface:#15171c;
+    --accent:#818cf8; --accent-soft:#1c1b3a;
+    --raw:#34d399; --raw-soft:#0f2a1f;
+    --transport:#fbbf24; --transport-soft:#2a1f0b;
+    --wh:#60a5fa; --wh-soft:#0f2038;
+    --orch:#a78bfa; --orch-soft:#201636;
+    --serve:#94a3b8; --serve-soft:#1b2027;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:var(--ink); background:#0b0d12;
+    max-width:1060px; margin:0 auto; padding:44px 26px 120px; line-height:1.65;
+  }
+  h1{font-size:1.9rem; letter-spacing:-.02em; margin:0 0 6px}
+  h2{font-size:1.3rem; margin:44px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  h3{font-size:1.02rem; margin:24px 0 8px}
+  p{margin:0 0 14px}
+  .sub{color:var(--muted); margin:0 0 22px}
+  a{color:var(--accent)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em;
+    background:var(--surface); padding:1px 5px; border-radius:4px}
+  pre{background:#0e131f; color:#e2e8f0; padding:14px 16px; border-radius:12px; overflow-x:auto;
+    border:1px solid var(--border); font-size:.8rem; line-height:1.5}
+  pre code{background:none; color:inherit; padding:0}
+  .callout{border-left:3px solid var(--accent); background:var(--accent-soft);
+    padding:12px 16px; border-radius:0 8px 8px 0; margin:16px 0}
+  .callout.green{border-color:var(--raw); background:var(--raw-soft)}
+  .callout.amber{border-color:var(--transport); background:var(--transport-soft)}
+  table{border-collapse:collapse; width:100%; font-size:.88rem; margin:12px 0 20px}
+  th{text-align:left; font-weight:600; color:var(--muted); text-transform:uppercase; font-size:.68rem;
+    letter-spacing:.05em; border-bottom:1px solid var(--border); padding:7px 9px}
+  td{padding:7px 9px; border-bottom:1px solid var(--border); vertical-align:top}
+  ul{margin:0 0 14px; padding-left:20px}
+  li{margin:4px 0}
+  figure{margin:20px 0}
+  figcaption{color:var(--muted); font-size:.84rem; text-align:center; margin-top:8px}
+  svg{width:100%; height:auto; display:block}
+  /* Labels without an explicit fill must not default to black on the dark
+     diagram panels. Colored labels set fill= and keep it. */
+  svg text:not([fill]){fill:#e5e7eb}
+  .tabs{display:flex; gap:8px; margin:26px 0 0; border-bottom:1px solid var(--border)}
+  .tab{appearance:none; background:none; border:0; border-bottom:2px solid transparent;
+    color:var(--muted); font:inherit; font-weight:600; padding:10px 14px; cursor:pointer; margin-bottom:-1px}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--accent); border-bottom-color:var(--accent)}
+  .panel{display:none}
+  .panel.active{display:block; animation:fade .18s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .card{border:1px solid var(--border); border-radius:12px; padding:13px 15px; background:var(--surface)}
+  .card h4{margin:0 0 6px; font-size:.92rem}
+  .muted{color:var(--muted); font-size:.86rem}
+  .tag{font-size:.7rem; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap}
+  .tag.auto{background:var(--raw-soft); color:var(--raw)}
+  .tag.auth{background:var(--transport-soft); color:var(--transport)}
+</style>
+</head>
+<body>
+
+<h1>Plex on Aegis — end-to-end, two ways</h1>
+<p class="sub">A learning walkthrough of how a real source flows through the stack: a
+<strong>Plex Media Server</strong> (library + sessions) and a <strong>Plex TV app</strong>
+(high-volume playback telemetry). Same platform, two very different shapes.</p>
+
+<div class="callout">
+  <strong>The one idea that makes both work.</strong> Ingestion and the <em>ingested</em> (bronze)
+  layer are <strong>generic</strong> — they are generated from a contract and don't care what the
+  columns are. The <em>prepared</em>/<em>aggregated</em> layers are <strong>bespoke SQL you
+  write</strong> (today) because "what is a session?" and "what is a good metric?" are business
+  meaning, not schema. Everything below is an instance of that split.
+</div>
+
+<h2>The shared pipeline (used by both tabs)</h2>
+<pre><code>connect (contract) → Sync now (pull, watermark) → gateway: validate + write raw + manifest
+  → Redpanda ingest.chunks (claim check) → Inngest ingest-chunk-load
+  → ClickHouse: ingested_*      (generic, engine deduped)
+  → ClickHouse: prepared_* / aggregated_*   (bespoke SQL)
+  → warehouse-refresh: hydrate 90d → Parquet
+  → DuckDB hydrate_* views → notebook / agent / insights</code></pre>
+<p class="muted">Raw (RustFS) is the authority; everything after it is rebuildable. Delivered
+at-least-once; every write is idempotent (content-addressed raw + <code>ReplacingMergeTree</code>).</p>
+
+<div class="tabs" role="tablist">
+  <button class="tab active" data-target="panel-server" role="tab">📚 Plex Media Server</button>
+  <button class="tab" data-target="panel-tv" role="tab">📺 Plex TV App (telemetry)</button>
+</div>
+
+<!-- ============================ TAB A: SERVER ============================ -->
+<section id="panel-server" class="panel active" role="tabpanel">
+  <h2>A · Plex Media Server</h2>
+  <p>The server is a <strong>request/response API</strong> behind a token: it exposes your library
+  (a <em>dimension</em>) and current playback sessions (a <em>fact</em>). Data changes slowly and is
+  pulled incrementally by <code>updated_at</code>.</p>
+
+  <h3>What we connect</h3>
+  <table>
+    <thead><tr><th>Dataset</th><th>Kind</th><th>Grain</th><th>Key</th><th>Event time</th></tr></thead>
+    <tbody>
+      <tr><td><code>media_items</code></td><td>dimension</td><td>1 row / movie or episode</td><td><code>content_id</code></td><td><code>added_at</code></td></tr>
+      <tr><td><code>playback_sessions</code></td><td>fact</td><td>1 row / playback session</td><td><code>session_id</code></td><td><code>started_at</code></td></tr>
+    </tbody>
+  </table>
+  <p><strong>Auth:</strong> Plex uses an <code>X-Plex-Token</code> header, which maps exactly to our
+  <code>header</code> auth scheme. The contract stores only the <em>reference</em>; the secret lives in
+  env or the gitignored credentials file.</p>
+
+  <h3>The contracts</h3>
+  <pre><code>// sources/plex-server/contract.json  (media_items)
+{
+  "version": 1, "source": "plex-server", "dataset": "media_items",
+  "baseUrl": "http://plex:32400",
+  "auth": { "type": "header", "header": "x-plex-token", "secretRef": "PLEX_TOKEN" },
+  "sync": { "mode": "incremental", "endpoint": "/library/all",
+            "cursorField": "updated_at", "cursorParam": "updated_since", "pageSize": 200 },
+  "load": { "target": "clickhouse", "layer": "ingested", "mode": "upsert",
+            "dedupe": "latest_by_key", "key": ["content_id"] },
+  "columns": {
+    "content_id":  { "type": "UInt64" },
+    "title":       { "type": "String" },
+    "kind":        { "type": "LowCardinality(String)" },
+    "duration_ms": { "type": "UInt64" },
+    "added_at":    { "type": "DateTime64(3, 'UTC')", "eventTime": true },
+    "updated_at":  { "type": "DateTime64(3, 'UTC')" }
+  }
+}
+// sources/plex-server/contract.json  (playback_sessions) — same shape, key = session_id,
+// eventTime = started_at, plus content_id / device_id / user_id / mode / bitrate.</code></pre>
+
+  <h3>End-to-end flow</h3>
+  <figure>
+  <svg viewBox="0 0 900 812" role="img" aria-label="Plex Media Server flow">
+    <defs><marker id="aA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9ca3af"/></marker></defs>
+    <g font-family="system-ui,sans-serif" font-size="12.5">
+      <rect x="240" y="14" width="420" height="56" rx="10" fill="#15171c" stroke="#94a3b8" stroke-dasharray="5 4"/>
+      <text x="450" y="38" text-anchor="middle" font-weight="600" fill="#e5e7eb">Plex Media Server (API)</text>
+      <text x="450" y="57" text-anchor="middle" font-size="11" fill="#9ca3af">/library/all · /status/sessions · X-Plex-Token</text>
+      <line x1="450" y1="70" x2="450" y2="96" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="240" y="98" width="420" height="56" rx="10" fill="#15171c" stroke="#71717a"/>
+      <text x="450" y="122" text-anchor="middle" font-weight="600">Connector — pages by updated_at</text>
+      <text x="450" y="141" text-anchor="middle" font-size="11" fill="#9ca3af">incremental: only rows newer than the watermark</text>
+      <line x1="450" y1="154" x2="450" y2="180" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="240" y="182" width="420" height="70" rx="10" fill="#1c1b3a" stroke="#818cf8"/>
+      <text x="450" y="206" text-anchor="middle" font-weight="600" fill="#a5b4fc">Ingestion gateway</text>
+      <text x="450" y="224" text-anchor="middle" font-size="11" fill="#a5b4fc">validate → hash → write RustFS raw/ (&lt;hash&gt;.jsonl)</text>
+      <text x="450" y="241" text-anchor="middle" font-size="11" fill="#a5b4fc">→ write manifest (a pointer, not the bytes)</text>
+      <line x1="450" y1="252" x2="450" y2="278" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="240" y="280" width="420" height="56" rx="10" fill="#2a1f0b" stroke="#fbbf24"/>
+      <text x="450" y="304" text-anchor="middle" font-weight="600" fill="#fcd34d">Redpanda · ingest.chunks</text>
+      <text x="450" y="323" text-anchor="middle" font-size="11" fill="#fbbf24">key = workspace_id · 6 partitions</text>
+      <line x1="450" y1="336" x2="450" y2="362" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="240" y="364" width="420" height="56" rx="10" fill="#201636" stroke="#a78bfa"/>
+      <text x="450" y="388" text-anchor="middle" font-weight="600" fill="#c4b5fd">Inngest · ingest-chunk-load</text>
+      <text x="450" y="407" text-anchor="middle" font-size="11" fill="#a78bfa">step 1 load-bronze · step 2 transform-marts</text>
+      <line x1="450" y1="420" x2="450" y2="446" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="180" y="448" width="540" height="86" rx="12" fill="#0f2038" stroke="#60a5fa"/>
+      <text x="450" y="472" text-anchor="middle" font-weight="600" fill="#93c5fd">ClickHouse · aegis</text>
+      <text x="450" y="492" text-anchor="middle" font-size="11" fill="#60a5fa">ingested_media_items · ingested_playback_sessions   (generic)</text>
+      <text x="450" y="509" text-anchor="middle" font-size="11" fill="#60a5fa">→ prepared_media_items · prepared_playback_sessions  (dim + fact)</text>
+      <text x="450" y="526" text-anchor="middle" font-size="11" fill="#60a5fa">→ aggregated_content_daily · aggregated_library_totals  (marts)</text>
+      <line x1="450" y1="534" x2="450" y2="560" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="240" y="562" width="420" height="56" rx="10" fill="#1b2027" stroke="#94a3b8"/>
+      <text x="450" y="586" text-anchor="middle" font-weight="600">warehouse-refresh</text>
+      <text x="450" y="605" text-anchor="middle" font-size="11" fill="#94a3b8">hydrate a 90-day window → Parquet</text>
+      <line x1="450" y1="618" x2="450" y2="644" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="240" y="646" width="420" height="56" rx="10" fill="#1b2027" stroke="#94a3b8"/>
+      <text x="450" y="670" text-anchor="middle" font-weight="600">DuckDB · hydrate_&lt;table&gt; views</text>
+      <text x="450" y="689" text-anchor="middle" font-size="11" fill="#94a3b8">local, disposable serving cache</text>
+      <line x1="450" y1="702" x2="450" y2="728" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aA)"/>
+      <rect x="240" y="730" width="420" height="56" rx="10" fill="#1c1b3a" stroke="#818cf8"/>
+      <text x="450" y="754" text-anchor="middle" font-weight="600" fill="#a5b4fc">Notebook — agent · dashboard · insights</text>
+      <text x="450" y="773" text-anchor="middle" font-size="11" fill="#a5b4fc">queries DuckDB, never ClickHouse directly</text>
+      <text x="44" y="220" font-size="10.5" fill="#34d399">raw = authority</text>
+      <text x="700" y="313" font-size="10.5" fill="#fbbf24">claim check</text>
+      <text x="700" y="500" font-size="10.5" fill="#60a5fa">idempotent writes</text>
+    </g>
+  </svg>
+  <figcaption>Server-side pull: two datasets, one gateway, contract-driven bronze, hand-written marts, then a windowed local cache.</figcaption>
+  </figure>
+
+  <h3>The data model (star)</h3>
+  <figure>
+  <svg viewBox="0 0 900 300" role="img" aria-label="Plex star schema">
+    <defs><marker id="aB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#60a5fa"/></marker></defs>
+    <g font-family="system-ui,sans-serif" font-size="12">
+      <rect x="20" y="90" width="230" height="120" rx="12" fill="#0f2038" stroke="#60a5fa"/>
+      <text x="135" y="116" text-anchor="middle" font-weight="700" fill="#93c5fd">dim_media</text>
+      <text x="135" y="138" text-anchor="middle" font-size="11" fill="#60a5fa">prepared_media_items</text>
+      <text x="135" y="160" text-anchor="middle" font-size="10.5" fill="#60a5fa">content_id (key)</text>
+      <text x="135" y="176" text-anchor="middle" font-size="10.5" fill="#60a5fa">title · kind · duration · genres</text>
+      <text x="135" y="192" text-anchor="middle" font-size="10.5" fill="#60a5fa">descriptive context</text>
+
+      <rect x="335" y="90" width="240" height="120" rx="12" fill="#0f2038" stroke="#60a5fa"/>
+      <text x="455" y="116" text-anchor="middle" font-weight="700" fill="#93c5fd">fct_playback_sessions</text>
+      <text x="455" y="138" text-anchor="middle" font-size="11" fill="#60a5fa">prepared_playback_sessions</text>
+      <text x="455" y="160" text-anchor="middle" font-size="10.5" fill="#60a5fa">session_id · content_id</text>
+      <text x="455" y="176" text-anchor="middle" font-size="10.5" fill="#60a5fa">device_id · mode · bitrate</text>
+      <text x="455" y="192" text-anchor="middle" font-size="10.5" fill="#60a5fa">started_at · ended_at · minutes</text>
+
+      <rect x="660" y="60" width="220" height="180" rx="12" fill="#1c1b3a" stroke="#818cf8"/>
+      <text x="770" y="86" text-anchor="middle" font-weight="700" fill="#a5b4fc">marts</text>
+      <text x="770" y="110" text-anchor="middle" font-size="11" fill="#a5b4fc">aggregated_content_daily</text>
+      <text x="770" y="128" text-anchor="middle" font-size="10.5" fill="#818cf8">views · watch_minutes · completion</text>
+      <text x="770" y="152" text-anchor="middle" font-size="11" fill="#a5b4fc">aggregated_library_totals</text>
+      <text x="770" y="170" text-anchor="middle" font-size="10.5" fill="#818cf8">per-library totals</text>
+      <text x="770" y="200" text-anchor="middle" font-size="10.5" fill="#818cf8">1 row / day / content_id</text>
+
+      <line x1="250" y1="150" x2="333" y2="150" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#aB)"/>
+      <text x="291" y="142" text-anchor="middle" font-size="10" fill="#60a5fa">join on content_id</text>
+      <line x1="575" y1="150" x2="658" y2="150" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#aB)"/>
+      <text x="616" y="142" text-anchor="middle" font-size="10" fill="#60a5fa">GROUP BY day, content</text>
+    </g>
+  </svg>
+  <figcaption>Dimension (what it is) joined to a fact (what happened) → aggregates. Grain of the fact is one playback session; grain of each mart is one row per day.</figcaption>
+  </figure>
+
+  <h3>What is automatic vs. what you write</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>Automatic <span class="tag auto">generic</span></h4>
+      <ul class="muted" style="margin:0;padding-left:18px">
+        <li>Both <code>ingested_*</code> tables (contract → DDL)</li>
+        <li>Incremental sync + watermarks</li>
+        <li>Dedupe by <code>session_id</code> / <code>content_id</code></li>
+        <li>Drift detection + additive columns</li>
+        <li>Raw authority + manifests</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Authored (today: SQL) <span class="tag auth">bespoke</span></h4>
+      <ul class="muted" style="margin:0;padding-left:18px">
+        <li><code>prepared_media_items</code> (dimension)</li>
+        <li><code>prepared_playback_sessions</code> (fact + measures)</li>
+        <li>Which aggregates matter, and their grain</li>
+        <li>Insight rules ("transcode rate", "top library")</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Example transforms</h3>
+  <pre><code>-- prepared: add measures to the fact (full, idempotent rebuild)
+SELECT tenant_id, workspace_id, session_id, content_id, device_id, user_id,
+       mode, bitrate_kbps, started_at,
+       ifNull(ended_at, now()) AS ended_at,
+       dateDiff('minute', started_at, ifNull(ended_at, now())) AS minutes,
+       _version
+FROM   ingested_playback_sessions FINAL;
+
+-- aggregated: one row per day per content
+SELECT tenant_id, workspace_id, toDate(started_at) AS day, content_id,
+       count() AS sessions, sum(minutes) AS watch_minutes,
+       avg(mode = 'transcode') AS transcode_rate
+FROM   prepared_playback_sessions
+GROUP  BY tenant_id, workspace_id, day, content_id;</code></pre>
+
+  <div class="callout green">
+    <strong>Concepts to take away:</strong> dimension vs fact · grain · star schema ·
+    upsert + <code>ReplacingMergeTree</code> for rows that change (a session's <code>ended_at</code>
+    is filled in later) · event-time partitioning (<code>toYYYYMM(started_at)</code>) so late
+    corrections still sort correctly · idempotent full rebuilds.
+  </div>
+</section>
+
+<!-- ============================ TAB B: TV APP ============================ -->
+<section id="panel-tv" class="panel" role="tabpanel">
+  <h2>B · Plex TV App (playback telemetry)</h2>
+  <p>This is a different animal: a **high-volume event stream** from the client, not a slowly-changing
+  API. Each interaction — play, pause, seek, rebuffer, stop, error — is a row. Events are
+  <strong>immutable</strong> (they don't get updated), so there is no dedupe-by-key; correctness comes
+  from a unique <code>event_id</code> and <strong>event-time</strong> ordering.</p>
+
+  <h3>What we connect</h3>
+  <table>
+    <thead><tr><th>Dataset</th><th>Kind</th><th>Grain</th><th>Load</th><th>Event time</th></tr></thead>
+    <tbody>
+      <tr><td><code>player_events</code></td><td>raw events</td><td>1 row / event</td><td>append, no dedupe</td><td><code>occurred_at</code></td></tr>
+    </tbody>
+  </table>
+  <p><strong>Auth:</strong> the app authenticates with a per-device token →
+  <code>auth: { "type": "bearer", "secretRef": "PLEX_APP_TOKEN" }</code>.</p>
+
+  <h3>The contract</h3>
+  <pre><code>{
+  "version": 1, "source": "plex-tv-app", "dataset": "player_events",
+  "baseUrl": "https://telemetry.example.com",
+  "auth": { "type": "bearer", "secretRef": "PLEX_APP_TOKEN" },
+  "sync": { "mode": "incremental", "endpoint": "/v1/player-events",
+            "cursorField": "occurred_at", "cursorParam": "since", "pageSize": 1000 },
+  "load": { "target": "clickhouse", "layer": "ingested", "mode": "append",
+            "dedupe": "none", "key": ["event_id"] },
+  "columns": {
+    "event_id":    { "type": "String" },
+    "session_id":  { "type": "String" },
+    "device_id":   { "type": "String", "pii": true },
+    "user_id":     { "type": "String", "pii": true },
+    "content_id":  { "type": "UInt64" },
+    "event_type":  { "type": "LowCardinality(String)" },  // play|pause|seek|rebuffer|stop|error
+    "occurred_at": { "type": "DateTime64(3, 'UTC')", "eventTime": true },
+    "position_ms": { "type": "UInt32" },
+    "buffered_ms": { "type": "UInt32" },
+    "bitrate_kbps":{ "type": "UInt32" },
+    "network":     { "type": "LowCardinality(String)" }
+  }
+}</code></pre>
+
+  <h3>End-to-end flow</h3>
+  <figure>
+  <svg viewBox="0 0 900 812" role="img" aria-label="Plex TV app flow">
+    <defs><marker id="aC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9ca3af"/></marker></defs>
+    <g font-family="system-ui,sans-serif" font-size="12.5">
+      <rect x="240" y="14" width="420" height="56" rx="10" fill="#15171c" stroke="#94a3b8" stroke-dasharray="5 4"/>
+      <text x="450" y="38" text-anchor="middle" font-weight="600" fill="#e5e7eb">Plex TV app — event stream</text>
+      <text x="450" y="57" text-anchor="middle" font-size="11" fill="#9ca3af">play · pause · seek · rebuffer · stop · error</text>
+      <line x1="450" y1="70" x2="450" y2="96" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="240" y="98" width="420" height="56" rx="10" fill="#15171c" stroke="#71717a"/>
+      <text x="450" y="122" text-anchor="middle" font-weight="600">Connector — pages by occurred_at</text>
+      <text x="450" y="141" text-anchor="middle" font-size="11" fill="#9ca3af">large pages; events may arrive out of order</text>
+      <line x1="450" y1="154" x2="450" y2="180" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="240" y="182" width="420" height="70" rx="10" fill="#1c1b3a" stroke="#818cf8"/>
+      <text x="450" y="206" text-anchor="middle" font-weight="600" fill="#a5b4fc">Ingestion gateway</text>
+      <text x="450" y="224" text-anchor="middle" font-size="11" fill="#a5b4fc">validate → hash → RustFS raw/ · manifest</text>
+      <text x="450" y="241" text-anchor="middle" font-size="11" fill="#a5b4fc">content-addressed → duplicate batches are free</text>
+      <line x1="450" y1="252" x2="450" y2="278" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="240" y="280" width="420" height="56" rx="10" fill="#2a1f0b" stroke="#fbbf24"/>
+      <text x="450" y="304" text-anchor="middle" font-weight="600" fill="#fcd34d">Redpanda · ingest.chunks</text>
+      <text x="450" y="323" text-anchor="middle" font-size="11" fill="#fbbf24">key = workspace_id · high throughput</text>
+      <line x1="450" y1="336" x2="450" y2="362" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="240" y="364" width="420" height="56" rx="10" fill="#201636" stroke="#a78bfa"/>
+      <text x="450" y="388" text-anchor="middle" font-weight="600" fill="#c4b5fd">Inngest · ingest-chunk-load</text>
+      <text x="450" y="407" text-anchor="middle" font-size="11" fill="#a78bfa">append to bronze · rebuild marts</text>
+      <line x1="450" y1="420" x2="450" y2="446" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="180" y="448" width="540" height="86" rx="12" fill="#0f2038" stroke="#60a5fa"/>
+      <text x="450" y="472" text-anchor="middle" font-weight="600" fill="#93c5fd">ClickHouse · aegis</text>
+      <text x="450" y="492" text-anchor="middle" font-size="11" fill="#60a5fa">ingested_player_events   (append-only, 1 row / event)</text>
+      <text x="450" y="509" text-anchor="middle" font-size="11" fill="#60a5fa">→ prepared_player_events (normalised) → prepared_client_sessions (sessionised)</text>
+      <text x="450" y="526" text-anchor="middle" font-size="11" fill="#60a5fa">→ aggregated_qoe_daily   (startup · rebuffer · error rate)</text>
+      <line x1="450" y1="534" x2="450" y2="560" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="240" y="562" width="420" height="56" rx="10" fill="#1b2027" stroke="#94a3b8"/>
+      <text x="450" y="586" text-anchor="middle" font-weight="600">warehouse-refresh</text>
+      <text x="450" y="605" text-anchor="middle" font-size="11" fill="#94a3b8">hydrate 90d → Parquet</text>
+      <line x1="450" y1="618" x2="450" y2="644" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="240" y="646" width="420" height="56" rx="10" fill="#1b2027" stroke="#94a3b8"/>
+      <text x="450" y="670" text-anchor="middle" font-weight="600">DuckDB · hydrate_&lt;table&gt; views</text>
+      <text x="450" y="689" text-anchor="middle" font-size="11" fill="#94a3b8">local serving cache</text>
+      <line x1="450" y1="702" x2="450" y2="728" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#aC)"/>
+      <rect x="240" y="730" width="420" height="56" rx="10" fill="#1c1b3a" stroke="#818cf8"/>
+      <text x="450" y="754" text-anchor="middle" font-weight="600" fill="#a5b4fc">Notebook — agent · dashboard · insights</text>
+      <text x="450" y="773" text-anchor="middle" font-size="11" fill="#a5b4fc">QoE dashboards, error drill-downs</text>
+      <text x="700" y="313" font-size="10.5" fill="#fbbf24">at-least-once</text>
+      <text x="700" y="500" font-size="10.5" fill="#60a5fa">event-time ordered</text>
+    </g>
+  </svg>
+  <figcaption>Same pipeline, stream-shaped source: append-only raw events, then sessionisation in the modelled layer.</figcaption>
+  </figure>
+
+  <h3>Sessionisation — turning many events into one row</h3>
+  <figure>
+  <svg viewBox="0 0 900 330" role="img" aria-label="Sessionisation and conformed join">
+    <defs><marker id="aD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#60a5fa"/></marker></defs>
+    <g font-family="system-ui,sans-serif" font-size="11.5">
+      <!-- raw events -->
+      <rect x="16" y="30" width="200" height="120" rx="10" fill="#0f2038" stroke="#60a5fa"/>
+      <text x="116" y="52" text-anchor="middle" font-weight="700" fill="#93c5fd">ingested_player_events</text>
+      <text x="116" y="74" text-anchor="middle" font-size="10" fill="#60a5fa">play    @0s</text>
+      <text x="116" y="90" text-anchor="middle" font-size="10" fill="#60a5fa">rebuffer@12s</text>
+      <text x="116" y="106" text-anchor="middle" font-size="10" fill="#60a5fa">play    @15s</text>
+      <text x="116" y="122" text-anchor="middle" font-size="10" fill="#60a5fa">pause   @90s</text>
+      <text x="116" y="138" text-anchor="middle" font-size="10" fill="#60a5fa">stop    @120s</text>
+      <line x1="216" y1="90" x2="254" y2="90" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#aD)"/>
+      <text x="235" y="82" text-anchor="middle" font-size="9.5" fill="#60a5fa">normalise</text>
+      <!-- normalised -->
+      <rect x="256" y="30" width="180" height="120" rx="10" fill="#0f2038" stroke="#60a5fa"/>
+      <text x="346" y="52" text-anchor="middle" font-weight="700" fill="#93c5fd">prepared_player_events</text>
+      <text x="346" y="74" text-anchor="middle" font-size="10" fill="#60a5fa">+ is_rebuffer</text>
+      <text x="346" y="90" text-anchor="middle" font-size="10" fill="#60a5fa">+ is_error</text>
+      <text x="346" y="106" text-anchor="middle" font-size="10" fill="#60a5fa">+ is_play</text>
+      <text x="346" y="122" text-anchor="middle" font-size="10" fill="#60a5fa">event-time ordered</text>
+      <line x1="436" y1="90" x2="474" y2="90" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#aD)"/>
+      <text x="455" y="82" text-anchor="middle" font-size="9.5" fill="#60a5fa">GROUP BY session</text>
+      <!-- sessionised -->
+      <rect x="476" y="24" width="200" height="132" rx="10" fill="#201636" stroke="#a78bfa"/>
+      <text x="576" y="46" text-anchor="middle" font-weight="700" fill="#c4b5fd">prepared_client_sessions</text>
+      <text x="576" y="68" text-anchor="middle" font-size="10" fill="#a78bfa">1 row / session_id</text>
+      <text x="576" y="86" text-anchor="middle" font-size="10" fill="#a78bfa">startup_ms, rebuffer_count</text>
+      <text x="576" y="102" text-anchor="middle" font-size="10" fill="#a78bfa">rebuffer_ms, play_time_ms</text>
+      <text x="576" y="118" text-anchor="middle" font-size="10" fill="#a78bfa">error_count, device_id</text>
+      <text x="576" y="136" text-anchor="middle" font-size="10" fill="#a78bfa">network, content_id</text>
+      <!-- join with server -->
+      <rect x="706" y="24" width="176" height="132" rx="10" fill="#1c1b3a" stroke="#818cf8"/>
+      <text x="794" y="46" text-anchor="middle" font-weight="700" fill="#a5b4fc">aggregated_qoe_daily</text>
+      <text x="794" y="68" text-anchor="middle" font-size="10" fill="#a5b4fc">join server</text>
+      <text x="794" y="84" text-anchor="middle" font-size="10" fill="#818cf8">prepared_playback_sessions</text>
+      <text x="794" y="104" text-anchor="middle" font-size="10" fill="#a5b4fc">startup p50/p95</text>
+      <text x="794" y="120" text-anchor="middle" font-size="10" fill="#a5b4fc">rebuffer_ratio</text>
+      <text x="794" y="136" text-anchor="middle" font-size="10" fill="#a5b4fc">error_rate by device</text>
+      <line x1="676" y1="90" x2="704" y2="90" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#aD)"/>
+      <!-- note -->
+      <text x="450" y="210" text-anchor="middle" font-size="11.5" fill="#9ca3af">The two sources meet on <tspan fill="#e5e7eb">session_id</tspan> / <tspan fill="#e5e7eb">content_id</tspan> — a "conformed" join.</text>
+      <text x="450" y="234" text-anchor="middle" font-size="11.5" fill="#9ca3af">Server tells you what played; the app tells you how it played.</text>
+      <rect x="150" y="258" width="600" height="52" rx="10" fill="#0f2a1f" stroke="#34d399"/>
+      <text x="450" y="280" text-anchor="middle" font-size="11" fill="#6ee7b7">Late / out-of-order events are fine: partition by occurred_at, dedupe by event_id,</text>
+      <text x="450" y="297" text-anchor="middle" font-size="11" fill="#6ee7b7">rebuild the marts idempotently — the answer is the same regardless of arrival order.</text>
+    </g>
+  </svg>
+  <figcaption>Raw events → normalised → one row per session → joined with server sessions into QoE marts.</figcaption>
+  </figure>
+
+  <h3>What is automatic vs. what you write</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>Automatic <span class="tag auto">generic</span></h4>
+      <ul class="muted" style="margin:0;padding-left:18px">
+        <li><code>ingested_player_events</code> (append, no dedupe)</li>
+        <li>Content-addressed raw (duplicate batches are free)</li>
+        <li>Event-time partitioning + watermark</li>
+        <li>Idempotent re-loads</li>
+        <li>Drift detection / additive columns</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Authored (today: SQL) <span class="tag auth">bespoke</span></h4>
+      <ul class="muted" style="margin:0;padding-left:18px">
+        <li>Sessionisation (raw events → session rows)</li>
+        <li>Which QoE metrics matter (startup, rebuffer, errors)</li>
+        <li>The conformed join with server sessions</li>
+        <li>Aggregate grain + insight rules</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Example transforms</h3>
+  <pre><code>-- prepared: one row per session, with QoE measures (idempotent rebuild)
+SELECT session_id, any(content_id) AS content_id, any(device_id) AS device_id,
+       any(network) AS network,
+       countIf(event_type = 'rebuffer') AS rebuffer_count,
+       sumIf(buffered_ms, event_type = 'rebuffer') AS rebuffer_ms,
+       countIf(event_type = 'error')    AS error_count,
+       maxIf(position_ms, event_type = 'stop') AS end_position_ms
+FROM   prepared_player_events
+GROUP  BY session_id;
+
+-- aggregated: QoE per day / device / network
+SELECT toDate(occurred_at) AS day, device_id, network,
+       quantile(0.5)(startup_ms)  AS startup_p50,
+       quantile(0.95)(startup_ms) AS startup_p95,
+       avg(rebuffer_ms / nullIf(play_time_ms, 0)) AS rebuffer_ratio,
+       avg(error_count > 0) AS error_rate
+FROM   prepared_client_sessions
+GROUP  BY day, device_id, network;</code></pre>
+
+  <div class="callout amber">
+    <strong>Where this gets harder:</strong> telemetry is orders of magnitude higher volume than
+    the server API, and events can be late/reordered. Sessionisation across a late boundary is
+    the point where a simple batch rebuild stops being ideal and a streaming window (Flink/kafka
+    Streams-style) earns its place. Our design already survives it — raw is the authority, so you
+    can always re-run the model over the whole window.
+  </div>
+
+  <div class="callout green">
+    <strong>Concepts to take away:</strong> event stream vs fact table · append-only vs upsert ·
+    <code>ReplacingMergeTree</code> vs plain <code>MergeTree</code> · sessionisation · event-time vs
+    processing-time · late/out-of-order data · conformed joins across sources · QoE metrics
+    (startup, rebuffer ratio, error rate).
+  </div>
+</section>
+
+<h2>Cheat sheet (both tabs)</h2>
+<table>
+  <thead><tr><th>Question</th><th>Server (A)</th><th>TV app (B)</th></tr></thead>
+  <tbody>
+    <tr><td>Source shape</td><td>request/response API</td><td>high-volume event stream</td></tr>
+    <tr><td>Auth</td><td><code>x-plex-token</code> header</td><td>bearer token</td></tr>
+    <tr><td>Load mode</td><td>upsert · dedupe latest_by_key</td><td>append · no dedupe</td></tr>
+    <tr><td>Rows change?</td><td>yes (session ends later)</td><td>no (immutable events)</td></tr>
+    <tr><td>Modelled layer</td><td>dimension + fact</td><td>normalise → sessionise → join</td></tr>
+    <tr><td>Key metric</td><td>watch minutes, completion</td><td>startup, rebuffer ratio, errors</td></tr>
+    <tr><td>Crucial concept</td><td>star schema, grain</td><td>event-time, late data, sessionisation</td></tr>
+  </tbody>
+</table>
+
+<p class="muted">See also: <code>docs/design/ingestion-platform.md</code> (the platform spec),
+<code>docs/system-design.html</code> (the whole system), and
+<code>docs/roadmap/agent-authored-transforms.md</code> (the idea of letting the agent
+author these transforms) and <code>docs/roadmap/ranged-hydration.md</code> (user-picked
+hydration windows).</p>
+
+<script>
+  document.querySelectorAll('.tab').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (b) { b.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.target).classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+</script>
+
+</body>
+</html>
